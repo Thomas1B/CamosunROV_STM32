@@ -35,17 +35,27 @@ These are set in STM32CubeMX.
 
 The HCLK is set to 180MHz.
 
+Programming Pins (SWD on PCB):
+| SWD Pin | STM32 Pin | Function | Notes |
+|:-------:|:---------:|:--------:|-------|
+| 1 | 3V3 | Target Supply Sense | Debug/programming |
+| 2 | PA14 | SWCLK | Debug/programming |
+| 3 | GND | Ground | Debug/programming |
+| 4 | PA13 | SWDIO | Debug/programming |
+| 5 | NRST | Reset | Debug/programming |
+| 6 | PB3 | SWO (optional) | Trace/debug output |
+
 Pin configuration:
-| Pin | Function | Peripheral / AF | Notes |
-|-----|----------|------------------|-------|
+| STM32 Pin | Function | Peripheral / AF | Notes |
+|:---:|:--------:|:----------------:|-------|
 | PA11 | Motor 1 PWM | TIM1_CH4 | Generates 300Hz Signal |
 | PA10 | Motor 2 PWM | TIM1_CH3 | |
 | PA9  | Motor 3 PWM | TIM1_CH2 | |
 | PA8  | Motor 4 PWM | TIM1_CH1 | |
 | PC9  | Motor 5 PWM | TIM8_CH4 | Generates 300Hz Signal |
 | PC8  | Motor 6 PWM | TIM8_CH3 | |
-| PA6 | Leak Sensor[^1] | TIM8 BKIN[^2]| auto terminates TIM8 PWM signals |
-| PB12 | Leak Sensor[^1] | TIM1 BKIN[^2]| auto terminates TIM1 PWM signals | 
+| PA6 | Leak Sensor[^1] | TIM8 BKIN[^2] | auto terminates TIM8 PWM signals |
+| PB12 | Leak Sensor[^1] | TIM1 BKIN[^2] | auto terminates TIM1 PWM signals |
 
 [^1]: Pins PA6 and PB12 are physically connected, so if a leak is detected they both detect a HIGH signal.
 [^2]: Due to NVIC Settings TIM1 and TIM8 break-inputs shared TIM9 and TIM12 respectively, interrupts on TIM9 and TIM12 cannot be used.
