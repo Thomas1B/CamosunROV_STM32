@@ -1,0 +1,8 @@
+../Core/Motors/motors.c:43:24:throttleToPulse	5
+../Core/Motors/motors.c:63:6:reset_motors	1
+../Core/Motors/motors.c:83:6:motor1	1
+../Core/Motors/motors.c:91:6:motor2	1
+../Core/Motors/motors.c:99:6:motor3	1
+../Core/Motors/motors.c:107:6:motor4	1
+../Core/Motors/motors.c:115:6:motor5	1
+../Core/Motors/motors.c:123:6:motor6	1
