@@ -22,12 +22,18 @@
  * passed into the single shared throttleToPulse(). Values are stored in motors.h
  */
 
-static const MotorPulseLimits motor1_limits = { MOTOR1_REVERSE_ONSET_PULSE, MOTOR1_FORWARD_ONSET_PULSE };
-static const MotorPulseLimits motor2_limits = { MOTOR2_REVERSE_ONSET_PULSE, MOTOR2_FORWARD_ONSET_PULSE };
-static const MotorPulseLimits motor3_limits = { MOTOR3_REVERSE_ONSET_PULSE, MOTOR3_FORWARD_ONSET_PULSE };
-static const MotorPulseLimits motor4_limits = { MOTOR4_REVERSE_ONSET_PULSE, MOTOR4_FORWARD_ONSET_PULSE };
-static const MotorPulseLimits motor5_limits = { MOTOR5_REVERSE_ONSET_PULSE, MOTOR5_FORWARD_ONSET_PULSE };
-static const MotorPulseLimits motor6_limits = { MOTOR6_REVERSE_ONSET_PULSE, MOTOR6_FORWARD_ONSET_PULSE };
+static const MotorPulseLimits motor1_limits = { MOTOR1_REVERSE_ONSET_PULSE,
+		MOTOR1_FORWARD_ONSET_PULSE };
+static const MotorPulseLimits motor2_limits = { MOTOR2_REVERSE_ONSET_PULSE,
+		MOTOR2_FORWARD_ONSET_PULSE };
+static const MotorPulseLimits motor3_limits = { MOTOR3_REVERSE_ONSET_PULSE,
+		MOTOR3_FORWARD_ONSET_PULSE };
+static const MotorPulseLimits motor4_limits = { MOTOR4_REVERSE_ONSET_PULSE,
+		MOTOR4_FORWARD_ONSET_PULSE };
+static const MotorPulseLimits motor5_limits = { MOTOR5_REVERSE_ONSET_PULSE,
+		MOTOR5_FORWARD_ONSET_PULSE };
+static const MotorPulseLimits motor6_limits = { MOTOR6_REVERSE_ONSET_PULSE,
+		MOTOR6_FORWARD_ONSET_PULSE };
 
 /**
  * @brief Converts a throttle percentage to a pulse width in microseconds, using the
@@ -40,7 +46,8 @@ static const MotorPulseLimits motor6_limits = { MOTOR6_REVERSE_ONSET_PULSE, MOTO
  *        compare value.
  * @retval Pulse width in microseconds.
  */
-static inline uint32_t throttleToPulse(const MotorPulseLimits *limits, int32_t throttlePercent) {
+static inline uint32_t throttleToPulse(const MotorPulseLimits *limits,
+		int32_t throttlePercent) {
 	if (throttlePercent > 100) {
 		throttlePercent = 100;
 	} else if (throttlePercent < -100) {
@@ -48,11 +55,15 @@ static inline uint32_t throttleToPulse(const MotorPulseLimits *limits, int32_t t
 	}
 
 	if (throttlePercent == 0) {
-		return (uint32_t)MOTOR_NEUTRAL_PULSE;
+		return (uint32_t) MOTOR_NEUTRAL_PULSE;
 	} else if (throttlePercent > 0) {
-		return lroundf(map(throttlePercent, 0.0f, 100.0f, limits->forwardOnsetPulse, MOTOR_MAX_PULSE));
+		return lroundf(
+				map(throttlePercent, 0.0f, 100.0f, limits->forwardOnsetPulse,
+						MOTOR_MAX_PULSE));
 	} else {
-		return lroundf(map(throttlePercent, -100.0f, 0.0f, MOTOR_MIN_PULSE, limits->reverseOnsetPulse));
+		return lroundf(
+				map(throttlePercent, -100.0f, 0.0f, MOTOR_MIN_PULSE,
+						limits->reverseOnsetPulse));
 	}
 }
 
@@ -71,9 +82,11 @@ void reset_motors() {
 
 	__HAL_TIM_MOE_ENABLE(&htim1); // enable timer ouput
 	__HAL_TIM_CLEAR_FLAG(&htim1, TIM_FLAG_BREAK); // clear interrupt clear for BKIN
+	__HAL_TIM_ENABLE_IT(&htim1, TIM_IT_BREAK); // <-- enable the break interrupt
 
 	__HAL_TIM_MOE_ENABLE(&htim8);
 	__HAL_TIM_CLEAR_FLAG(&htim8, TIM_FLAG_BREAK);
+	__HAL_TIM_ENABLE_IT(&htim8, TIM_IT_BREAK);
 }
 
 /**
@@ -81,7 +94,8 @@ void reset_motors() {
  * @param throttlePercent Throttle value as a percentage (-100 to 100).
  */
 void motor1(int32_t throttlePercent) {
-	__HAL_TIM_SET_COMPARE(MOTOR1_TIM, MOTOR1_CHANNEL, throttleToPulse(&motor1_limits, throttlePercent));
+	__HAL_TIM_SET_COMPARE(MOTOR1_TIM, MOTOR1_CHANNEL,
+			throttleToPulse(&motor1_limits, throttlePercent));
 }
 
 /**
@@ -89,7 +103,8 @@ void motor1(int32_t throttlePercent) {
  * @param throttlePercent Throttle value as a percentage (-100 to 100).
  */
 void motor2(int32_t throttlePercent) {
-	__HAL_TIM_SET_COMPARE(MOTOR2_TIM, MOTOR2_CHANNEL, throttleToPulse(&motor2_limits, throttlePercent));
+	__HAL_TIM_SET_COMPARE(MOTOR2_TIM, MOTOR2_CHANNEL,
+			throttleToPulse(&motor2_limits, throttlePercent));
 }
 
 /**
@@ -97,7 +112,8 @@ void motor2(int32_t throttlePercent) {
  * @param throttlePercent Throttle value as a percentage (-100 to 100).
  */
 void motor3(int32_t throttlePercent) {
-	__HAL_TIM_SET_COMPARE(MOTOR3_TIM, MOTOR3_CHANNEL, throttleToPulse(&motor3_limits, throttlePercent));
+	__HAL_TIM_SET_COMPARE(MOTOR3_TIM, MOTOR3_CHANNEL,
+			throttleToPulse(&motor3_limits, throttlePercent));
 }
 
 /**
@@ -105,7 +121,8 @@ void motor3(int32_t throttlePercent) {
  * @param throttlePercent Throttle value as a percentage (-100 to 100).
  */
 void motor4(int32_t throttlePercent) {
-	__HAL_TIM_SET_COMPARE(MOTOR4_TIM, MOTOR4_CHANNEL, throttleToPulse(&motor4_limits, throttlePercent));
+	__HAL_TIM_SET_COMPARE(MOTOR4_TIM, MOTOR4_CHANNEL,
+			throttleToPulse(&motor4_limits, throttlePercent));
 }
 
 /**
@@ -113,7 +130,8 @@ void motor4(int32_t throttlePercent) {
  * @param throttlePercent Throttle value as a percentage (-100 to 100).
  */
 void motor5(int32_t throttlePercent) {
-	__HAL_TIM_SET_COMPARE(MOTOR5_TIM, MOTOR5_CHANNEL, throttleToPulse(&motor5_limits, throttlePercent));
+	__HAL_TIM_SET_COMPARE(MOTOR5_TIM, MOTOR5_CHANNEL,
+			throttleToPulse(&motor5_limits, throttlePercent));
 }
 
 /**
@@ -121,5 +139,6 @@ void motor5(int32_t throttlePercent) {
  * @param throttlePercent Throttle value as a percentage (-100 to 100).
  */
 void motor6(int32_t throttlePercent) {
-	__HAL_TIM_SET_COMPARE(MOTOR6_TIM, MOTOR6_CHANNEL, throttleToPulse(&motor6_limits, throttlePercent));
+	__HAL_TIM_SET_COMPARE(MOTOR6_TIM, MOTOR6_CHANNEL,
+			throttleToPulse(&motor6_limits, throttlePercent));
 }

@@ -48,6 +48,17 @@ UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 
+/* Tracks whether the system is operating normally or has hit a fault
+ * (e.g. leak detected via TIM1/TIM8 break input). Checked by the main
+ * loop, the break callback, and motor functions to gate behavior during
+ * a fault.  */
+typedef enum {
+	SYS_STATE_RUN = 0, /* normal operation */
+	SYS_STATE_FAULT/* fault latched (e.g. leak detected);*/
+} SystemState_t;
+
+volatile SystemState_t systemState = SYS_STATE_RUN;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -109,6 +120,7 @@ int main(void) {
 	__HAL_TIM_ENABLE_IT(&htim8, TIM_IT_BREAK); // <-- enable the break interrupt
 	reset_motors(); // Reset all motors to 0% throttle
 	HAL_Delay(1000);
+	HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_SET);
 
 	/* USER CODE END 2 */
 
@@ -116,6 +128,9 @@ int main(void) {
 	/* USER CODE BEGIN WHILE */
 	while (1) {
 		/* USER CODE END WHILE */
+
+		if (systemState == SYS_STATE_RUN) {
+		}
 
 		/* USER CODE BEGIN 3 */
 	}
@@ -373,25 +388,19 @@ static void MX_GPIO_Init(void) {
 	/* USER CODE END MX_GPIO_Init_1 */
 
 	/* GPIO Ports Clock Enable */
-	__HAL_RCC_GPIOC_CLK_ENABLE();
 	__HAL_RCC_GPIOA_CLK_ENABLE();
 	__HAL_RCC_GPIOB_CLK_ENABLE();
+	__HAL_RCC_GPIOC_CLK_ENABLE();
 
 	/*Configure GPIO pin Output Level */
-	HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(GPIOB, GREEN_LED_Pin | RED_LED_Pin, GPIO_PIN_RESET);
 
-	/*Configure GPIO pin : B1_Pin */
-	GPIO_InitStruct.Pin = B1_Pin;
-	GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
-	GPIO_InitStruct.Pull = GPIO_NOPULL;
-	HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
-
-	/*Configure GPIO pin : LD2_Pin */
-	GPIO_InitStruct.Pin = LD2_Pin;
+	/*Configure GPIO pins : GREEN_LED_Pin RED_LED_Pin */
+	GPIO_InitStruct.Pin = GREEN_LED_Pin | RED_LED_Pin;
 	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
 	GPIO_InitStruct.Pull = GPIO_NOPULL;
 	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-	HAL_GPIO_Init(LD2_GPIO_Port, &GPIO_InitStruct);
+	HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
 	/* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -402,6 +411,36 @@ static void MX_GPIO_Init(void) {
 int __io_putchar(int ch) {
 	ITM_SendChar(ch); // Send the character to the SWO console (for debugging)
 	return ch;
+}
+
+/**
+ * @brief  Break interrupt callback for advanced timers (TIM1/TIM8).
+ *
+ * Called by the HAL when a break event is detected on TIM1 or TIM8
+ * (e.g. triggered by an external fault input, such as an overcurrent
+ * or overtemperature signal). Used here as a safety response: it
+ * immediately turns on the red LED to indicate a fault condition
+ * so the timer's PWM outputs can be shut down without delay.
+ *
+ * @param  htim  Pointer to the TIM handle that generated the break event.
+ * @retval None
+ */
+void HAL_TIMEx_BreakCallback(TIM_HandleTypeDef *htim) {
+	if (htim->Instance == TIM1 || htim->Instance == TIM8) {
+		// Fault detected
+		if (systemState != SYS_STATE_FAULT) {
+			systemState = SYS_STATE_FAULT;
+			HAL_GPIO_WritePin(RED_LED_GPIO_Port, RED_LED_Pin, GPIO_PIN_SET);
+
+			// Stop both break interrupts from continuously re-firing.
+			__HAL_TIM_DISABLE_IT(&htim8, TIM_IT_BREAK);
+			__HAL_TIM_DISABLE_IT(&htim1, TIM_IT_BREAK);
+
+			/*
+			 * TODO: need to send message to pi that leak is detected.
+			 */
+		}
+	}
 }
 /* USER CODE END 4 */
 
