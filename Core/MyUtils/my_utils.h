@@ -1,5 +1,5 @@
 /*
- * my_utils.c
+ * my_utils.h
  *
  *  Created on: Jul 17, 2026
  *      Author: Thomas Bourgeois
@@ -15,9 +15,10 @@
 #include <stdint.h>
 
 
-float map(float x, float in_min, float in_max, float out_min, float out_max);
+float util_map(float x, float in_min, float in_max, float out_min, float out_max);
 
+float util_adc_to_voltage(uint16_t val);
 
-float analogToVoltage(uint16_t val);
+void  util_set_led_brightness_pct(uint8_t percent);
 
 #endif /* MYUTILS_MY_UTILS_H_ */

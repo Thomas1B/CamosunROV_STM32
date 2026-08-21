@@ -23,7 +23,7 @@
  *         the returned value will be outside [out_min, out_max] as well.
  * @note   If in_min == in_max, this will divide by zero.
  */
-float map(float x, float in_min, float in_max, float out_min, float out_max) {
+float util_map(float x, float in_min, float in_max, float out_min, float out_max) {
 	return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }
 
@@ -32,6 +32,7 @@ float map(float x, float in_min, float in_max, float out_min, float out_max) {
  * @param val Raw ADC value (0–4095).
  * @return Voltage in volts (0.0–3.3V), assuming 3.3V reference.
  */
-float analogToVoltage(uint16_t val) {
+float util_adc_to_voltage(uint16_t val) {
 	return ((float) val * 3.3f) / 4095.0f;
 }
+

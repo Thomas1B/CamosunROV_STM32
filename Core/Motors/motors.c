@@ -58,11 +58,11 @@ static inline uint32_t throttleToPulse(const MotorPulseLimits *limits,
 		return (uint32_t) MOTOR_NEUTRAL_PULSE;
 	} else if (throttlePercent > 0) {
 		return lroundf(
-				map(throttlePercent, 0.0f, 100.0f, limits->forwardOnsetPulse,
+				util_map(throttlePercent, 0.0f, 100.0f, limits->forwardOnsetPulse,
 						MOTOR_MAX_PULSE));
 	} else {
 		return lroundf(
-				map(throttlePercent, -100.0f, 0.0f, MOTOR_MIN_PULSE,
+				util_map(throttlePercent, -100.0f, 0.0f, MOTOR_MIN_PULSE,
 						limits->reverseOnsetPulse));
 	}
 }
@@ -80,12 +80,13 @@ void reset_motors() {
 	motor5(0);
 	motor6(0);
 
-	__HAL_TIM_MOE_ENABLE(&htim1); // enable timer ouput
-	__HAL_TIM_CLEAR_FLAG(&htim1, TIM_FLAG_BREAK); // clear interrupt clear for BKIN
-	__HAL_TIM_ENABLE_IT(&htim1, TIM_IT_BREAK); // <-- enable the break interrupt
-
+	__HAL_TIM_MOE_ENABLE(&htim1); // Required: output stays gated off until MOE is set (BDTR.MOE) (Only advanced timers)
 	__HAL_TIM_MOE_ENABLE(&htim8);
+
+	__HAL_TIM_CLEAR_FLAG(&htim1, TIM_FLAG_BREAK); // clear interrupt clear for BKIN
 	__HAL_TIM_CLEAR_FLAG(&htim8, TIM_FLAG_BREAK);
+
+	__HAL_TIM_ENABLE_IT(&htim1, TIM_IT_BREAK); // <-- enable the break interrupt
 	__HAL_TIM_ENABLE_IT(&htim8, TIM_IT_BREAK);
 }
 
