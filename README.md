@@ -56,6 +56,7 @@ Pin configuration:
 | PC8  | Motor 6 PWM | TIM8_CH3 | |
 | PA6 | Leak Sensor[^1] | TIM8 BKIN[^2] | auto terminates TIM8 PWM signals |
 | PB12 | Leak Sensor[^1] | TIM1 BKIN[^2] | auto terminates TIM1 PWM signals |
+| PB15 | Viewing Lights | TIM12_CH2 | Generates 1KHz Signal |
 
 [^1]: Pins PA6 and PB12 are physically connected, so if a leak is detected they both detect a HIGH signal.
 [^2]: Due to NVIC Settings TIM1 and TIM8 break-inputs shared TIM9 and TIM12 respectively, interrupts on TIM9 and TIM12 cannot be used.
