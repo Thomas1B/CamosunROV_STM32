@@ -72,6 +72,7 @@ static void MX_TIM12_Init(void);
 
 /* USER CODE BEGIN PFP */
 
+void emergency_shutdown(void);
 void set_viewing_light_lvl(uint8_t percent);
 
 /* USER CODE END PFP */
@@ -470,33 +471,38 @@ int __io_putchar(int ch) {
 }
 
 /**
+ * @brief Immediately stops all motors and the viewing light, latches the
+ *        fault state, and signals the fault condition. Safe to call from
+ *        ISR context. Idempotent — safe to call even if already faulted.
+ */
+void emergency_shutdown(void) {
+	if (system_state_t == SYS_STATE_FAULT) {
+		return; // system state is already fault.
+	}
+	system_state_t = SYS_STATE_FAULT;
+	HAL_GPIO_WritePin(RED_LED_GPIO_Port, RED_LED_Pin, GPIO_PIN_SET);
+
+	__HAL_TIM_DISABLE_IT(&htim8, TIM_IT_BREAK);
+	__HAL_TIM_DISABLE_IT(&htim1, TIM_IT_BREAK);
+	HAL_TIM_PWM_Stop(&htim12, TIM_CHANNEL_2);
+
+	// TODO: signal fault to Pi (set a flag here; send over UART from main loop, not from ISR)
+}
+
+/**
  * @brief  Break interrupt callback for advanced timers (TIM1/TIM8).
  *
  * Called by the HAL when a break event is detected on TIM1 or TIM8
- * (e.g. triggered by an external fault input, such as an overcurrent
- * or overtemperature signal). Used here as a safety response: it
- * immediately turns on the red LED to indicate a fault condition
- * so the timer's PWM outputs can be shut down without delay.
+ * (e.g. triggered by an external fault input, such as a leak sensor
+ * tied to BKIN). Runs in interrupt context, so it only dispatches to
+ * emergency_shutdown() rather than doing any blocking work itself.
  *
  * @param  htim  Pointer to the TIM handle that generated the break event.
  * @retval None
  */
 void HAL_TIMEx_BreakCallback(TIM_HandleTypeDef *htim) {
 	if (htim->Instance == TIM1 || htim->Instance == TIM8) {
-		// Fault detected
-		if (system_state_t != SYS_STATE_FAULT) {
-			system_state_t = SYS_STATE_FAULT;
-			HAL_GPIO_WritePin(RED_LED_GPIO_Port, RED_LED_Pin, GPIO_PIN_SET);
-
-			// Stop both break interrupts from continuously re-firing.
-			__HAL_TIM_DISABLE_IT(&htim8, TIM_IT_BREAK); // these are re-enable in reset_motors().
-			__HAL_TIM_DISABLE_IT(&htim1, TIM_IT_BREAK);
-			HAL_TIM_PWM_Stop(&htim12, TIM_CHANNEL_2);
-
-			/*
-			 * TODO: need to send message to pi that leak is detected.
-			 */
-		}
+		emergency_shutdown();
 	}
 }
 
@@ -511,7 +517,8 @@ void set_viewing_light_lvl(uint8_t percent) {
 	}
 
 	// Map the 0-100% brightness input to the timer's duty-cycle range (0-1000, matching htim12's period)
-	float duty_ticks_f = util_map((float) percent, 0.0f, 100.0f, 0.0f, (float)htim12.Init.Period);
+	float duty_ticks_f = util_map((float) percent, 0.0f, 100.0f, 0.0f,
+			(float) htim12.Init.Period);
 	uint32_t duty_ticks = (uint32_t) duty_ticks_f; // Truncate to a whole number of timer ticks
 
 	__HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, duty_ticks); // Update PWM duty cycle to apply the new brightness
