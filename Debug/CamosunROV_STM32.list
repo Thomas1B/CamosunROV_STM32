@@ -1317,13 +1317,13 @@ static inline uint32_t throttleToPulse(const MotorPulseLimits *limits,
  8000fcc:	44898000 	.word	0x44898000
  8000fd0:	c2c80000 	.word	0xc2c80000
 
-08000fd4 <reset_motors>:
-
-/**
- * @brief Resets all motors to 0 throttle and clears any break flags.
- * This function is useful for emergency stops or when initializing the system.
+08000fd4 <reset_reinit>:
+ * break flag, and re-enables the break interrupt. This makes it safe
+ * to call both at system init and after a fault has been cleared, to
+ * bring the motor subsystem back to a known, ready-to-run state.
+ *
  */
-void reset_motors() {
+void reset_reinit() {
  8000fd4:	b580      	push	{r7, lr}
  8000fd6:	af00      	add	r7, sp, #0
 
@@ -1347,46 +1347,46 @@ void reset_motors() {
  8000ff8:	f000 f894 	bl	8001124 <motor6>
 
 	__HAL_TIM_MOE_ENABLE(&htim1); // Required: output stays gated off until MOE is set (BDTR.MOE) (Only advanced timers)
- 8000ffc:	4b15      	ldr	r3, [pc, #84]	@ (8001054 <reset_motors+0x80>)
+ 8000ffc:	4b15      	ldr	r3, [pc, #84]	@ (8001054 <reset_reinit+0x80>)
  8000ffe:	681b      	ldr	r3, [r3, #0]
  8001000:	6c5a      	ldr	r2, [r3, #68]	@ 0x44
- 8001002:	4b14      	ldr	r3, [pc, #80]	@ (8001054 <reset_motors+0x80>)
+ 8001002:	4b14      	ldr	r3, [pc, #80]	@ (8001054 <reset_reinit+0x80>)
  8001004:	681b      	ldr	r3, [r3, #0]
  8001006:	f442 4200 	orr.w	r2, r2, #32768	@ 0x8000
  800100a:	645a      	str	r2, [r3, #68]	@ 0x44
 	__HAL_TIM_MOE_ENABLE(&htim8);
- 800100c:	4b12      	ldr	r3, [pc, #72]	@ (8001058 <reset_motors+0x84>)
+ 800100c:	4b12      	ldr	r3, [pc, #72]	@ (8001058 <reset_reinit+0x84>)
  800100e:	681b      	ldr	r3, [r3, #0]
  8001010:	6c5a      	ldr	r2, [r3, #68]	@ 0x44
- 8001012:	4b11      	ldr	r3, [pc, #68]	@ (8001058 <reset_motors+0x84>)
+ 8001012:	4b11      	ldr	r3, [pc, #68]	@ (8001058 <reset_reinit+0x84>)
  8001014:	681b      	ldr	r3, [r3, #0]
  8001016:	f442 4200 	orr.w	r2, r2, #32768	@ 0x8000
  800101a:	645a      	str	r2, [r3, #68]	@ 0x44
 
 	__HAL_TIM_CLEAR_FLAG(&htim1, TIM_FLAG_BREAK); // clear interrupt clear for BKIN
- 800101c:	4b0d      	ldr	r3, [pc, #52]	@ (8001054 <reset_motors+0x80>)
+ 800101c:	4b0d      	ldr	r3, [pc, #52]	@ (8001054 <reset_reinit+0x80>)
  800101e:	681b      	ldr	r3, [r3, #0]
  8001020:	f06f 0280 	mvn.w	r2, #128	@ 0x80
  8001024:	611a      	str	r2, [r3, #16]
 	__HAL_TIM_CLEAR_FLAG(&htim8, TIM_FLAG_BREAK);
- 8001026:	4b0c      	ldr	r3, [pc, #48]	@ (8001058 <reset_motors+0x84>)
+ 8001026:	4b0c      	ldr	r3, [pc, #48]	@ (8001058 <reset_reinit+0x84>)
  8001028:	681b      	ldr	r3, [r3, #0]
  800102a:	f06f 0280 	mvn.w	r2, #128	@ 0x80
  800102e:	611a      	str	r2, [r3, #16]
 
 	__HAL_TIM_ENABLE_IT(&htim1, TIM_IT_BREAK); // <-- enable the break interrupt
- 8001030:	4b08      	ldr	r3, [pc, #32]	@ (8001054 <reset_motors+0x80>)
+ 8001030:	4b08      	ldr	r3, [pc, #32]	@ (8001054 <reset_reinit+0x80>)
  8001032:	681b      	ldr	r3, [r3, #0]
  8001034:	68da      	ldr	r2, [r3, #12]
- 8001036:	4b07      	ldr	r3, [pc, #28]	@ (8001054 <reset_motors+0x80>)
+ 8001036:	4b07      	ldr	r3, [pc, #28]	@ (8001054 <reset_reinit+0x80>)
  8001038:	681b      	ldr	r3, [r3, #0]
  800103a:	f042 0280 	orr.w	r2, r2, #128	@ 0x80
  800103e:	60da      	str	r2, [r3, #12]
 	__HAL_TIM_ENABLE_IT(&htim8, TIM_IT_BREAK);
- 8001040:	4b05      	ldr	r3, [pc, #20]	@ (8001058 <reset_motors+0x84>)
+ 8001040:	4b05      	ldr	r3, [pc, #20]	@ (8001058 <reset_reinit+0x84>)
  8001042:	681b      	ldr	r3, [r3, #0]
  8001044:	68da      	ldr	r2, [r3, #12]
- 8001046:	4b04      	ldr	r3, [pc, #16]	@ (8001058 <reset_motors+0x84>)
+ 8001046:	4b04      	ldr	r3, [pc, #16]	@ (8001058 <reset_reinit+0x84>)
  8001048:	681b      	ldr	r3, [r3, #0]
  800104a:	f042 0280 	orr.w	r2, r2, #128	@ 0x80
  800104e:	60da      	str	r2, [r3, #12]
@@ -1738,8 +1738,8 @@ int main(void) {
  8001268:	681b      	ldr	r3, [r3, #0]
  800126a:	f042 0280 	orr.w	r2, r2, #128	@ 0x80
  800126e:	60da      	str	r2, [r3, #12]
-	reset_motors(); // Reset all motors to 0% throttle
- 8001270:	f7ff feb0 	bl	8000fd4 <reset_motors>
+	reset_reinit(); // Reset all motors to 0% throttle
+ 8001270:	f7ff feb0 	bl	8000fd4 <reset_reinit>
 
 	HAL_Delay(1000);
  8001274:	f44f 707a 	mov.w	r0, #1000	@ 0x3e8

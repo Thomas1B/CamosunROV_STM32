@@ -3221,9 +3221,9 @@ LOAD C:/ST/STM32CubeIDE_2.1.1/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.exte
  *(.text*)
  .text.throttleToPulse
                 0x08000f14       0xc0 ./Core/Motors/motors.o
- .text.reset_motors
+ .text.reset_reinit
                 0x08000fd4       0x88 ./Core/Motors/motors.o
-                0x08000fd4                reset_motors
+                0x08000fd4                reset_reinit
  .text.motor1   0x0800105c       0x28 ./Core/Motors/motors.o
                 0x0800105c                motor1
  .text.motor2   0x08001084       0x28 ./Core/Motors/motors.o

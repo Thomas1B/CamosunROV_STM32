@@ -103,7 +103,7 @@ typedef struct {
 	float forwardOnsetPulse;
 } MotorPulseLimits;
 
-void reset_motors();
+void reset_reinit();
 
 void motor1(int32_t throttlePercent);
 void motor2(int32_t throttlePercent);

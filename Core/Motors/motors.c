@@ -68,10 +68,17 @@ static inline uint32_t throttleToPulse(const MotorPulseLimits *limits,
 }
 
 /**
- * @brief Resets all motors to 0 throttle and clears any break flags.
- * This function is useful for emergency stops or when initializing the system.
+ * @brief Resets all motors to 0% throttle and re-arms the timer break
+ *        (fault) protection on TIM1/TIM8.
+ *
+ * Beyond zeroing throttle, this function re-enables the PWM outputs
+ * (MOE, gated off by BDTR after a break event), clears any latched
+ * break flag, and re-enables the break interrupt. This makes it safe
+ * to call both at system init and after a fault has been cleared, to
+ * bring the motor subsystem back to a known, ready-to-run state.
+ *
  */
-void reset_motors() {
+void reset_reinit() {
 
 	motor1(0);
 	motor2(0);
