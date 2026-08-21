@@ -131,7 +131,7 @@ int main(void) {
 	HAL_Delay(1000);
 	HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_SET);
 
-	set_viewing_light_lvl(50);
+	set_viewing_light_lvl(10);
 
 	/* USER CODE END 2 */
 

@@ -1750,8 +1750,8 @@ int main(void) {
  8001282:	4807      	ldr	r0, [pc, #28]	@ (80012a0 <main+0xa8>)
  8001284:	f001 f992 	bl	80025ac <HAL_GPIO_WritePin>
 
-	set_viewing_light_lvl(50);
- 8001288:	2032      	movs	r0, #50	@ 0x32
+	set_viewing_light_lvl(10);
+ 8001288:	200a      	movs	r0, #10
  800128a:	f000 fb23 	bl	80018d4 <set_viewing_light_lvl>
 
 	/* USER CODE END 2 */
