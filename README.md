@@ -3,7 +3,7 @@
 This is the repository for the STM32 board used in the Camosun College ROV project. 
 It contains the firmware and related resources for the STM32 microcontroller that controls the ROV's motors and sensors.
 
-The STM32 chip used is the STM32F446RE, which is a high-performance ARM Cortex-M4 microcontroller.
+The STM32 chip used is the STM32F446RE, which is a high-performance ARM Cortex-M4 microcontroller.<br>
 Datasheet: [STM32F446RE Datasheet](https://www.st.com/en/microcontrollers-microprocessors/stm32f446/documentation.html)
 
 This custom STM32 board is designed to communicate with a Raspberry Pi 4 via UART. 
