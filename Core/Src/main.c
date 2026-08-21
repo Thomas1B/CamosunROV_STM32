@@ -488,6 +488,7 @@ void HAL_TIMEx_BreakCallback(TIM_HandleTypeDef *htim) {
 			// Stop both break interrupts from continuously re-firing.
 			__HAL_TIM_DISABLE_IT(&htim8, TIM_IT_BREAK);
 			__HAL_TIM_DISABLE_IT(&htim1, TIM_IT_BREAK);
+			HAL_TIM_PWM_Stop(&htim12, TIM_CHANNEL_2);
 
 			/*
 			 * TODO: need to send message to pi that leak is detected.
