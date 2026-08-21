@@ -489,7 +489,7 @@ void HAL_TIMEx_BreakCallback(TIM_HandleTypeDef *htim) {
 			HAL_GPIO_WritePin(RED_LED_GPIO_Port, RED_LED_Pin, GPIO_PIN_SET);
 
 			// Stop both break interrupts from continuously re-firing.
-			__HAL_TIM_DISABLE_IT(&htim8, TIM_IT_BREAK);
+			__HAL_TIM_DISABLE_IT(&htim8, TIM_IT_BREAK); // these are re-enable in reset_motors().
 			__HAL_TIM_DISABLE_IT(&htim1, TIM_IT_BREAK);
 			HAL_TIM_PWM_Stop(&htim12, TIM_CHANNEL_2);
 
