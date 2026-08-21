@@ -1,0 +1,2 @@
+../Core/MyUtils/my_utils.c:26:7:util_map	1
+../Core/MyUtils/my_utils.c:35:7:util_adc_to_voltage	1

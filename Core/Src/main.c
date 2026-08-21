@@ -511,7 +511,7 @@ void set_viewing_light_lvl(uint8_t percent) {
 	}
 
 	// Map the 0-100% brightness input to the timer's duty-cycle range (0-1000, matching htim12's period)
-	float duty_ticks_f = util_map((float) percent, 0.0f, 100.0f, 0.0f, 1000.0f);
+	float duty_ticks_f = util_map((float) percent, 0.0f, 100.0f, 0.0f, (float)htim12.Init.Period);
 	uint32_t duty_ticks = (uint32_t) duty_ticks_f; // Truncate to a whole number of timer ticks
 
 	__HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, duty_ticks); // Update PWM duty cycle to apply the new brightness
