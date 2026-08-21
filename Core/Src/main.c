@@ -127,7 +127,7 @@ int main(void) {
 	HAL_TIM_PWM_Start(MOTOR6_TIM, MOTOR6_CHANNEL); // Start PWM for Motor6
 	__HAL_TIM_ENABLE_IT(&htim1, TIM_IT_BREAK); // <-- enable the break interrupt
 	__HAL_TIM_ENABLE_IT(&htim8, TIM_IT_BREAK); // <-- enable the break interrupt
-	reset_reinit(); // Reset all motors to 0% throttle
+	reset_reinit(); // # initialize motors (sets throttle to 0%)
 
 	HAL_Delay(1000);
 	HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_SET);
