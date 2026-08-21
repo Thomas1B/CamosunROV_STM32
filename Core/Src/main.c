@@ -28,6 +28,15 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
+/* Tracks whether the system is operating normally or has hit a fault
+ * (e.g. leak detected via TIM1/TIM8 break input). Checked by the main
+ * loop, the break callback, and motor functions to gate behavior during
+ * a fault.  */
+typedef enum {
+	SYS_STATE_RUN = 0, /* normal operation */
+	SYS_STATE_FAULT/* fault latched (e.g. leak detected);*/
+} SystemState_t;
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -49,15 +58,6 @@ UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 
-/* Tracks whether the system is operating normally or has hit a fault
- * (e.g. leak detected via TIM1/TIM8 break input). Checked by the main
- * loop, the break callback, and motor functions to gate behavior during
- * a fault.  */
-typedef enum {
-	SYS_STATE_RUN = 0, /* normal operation */
-	SYS_STATE_FAULT/* fault latched (e.g. leak detected);*/
-} SystemState_t;
-
 volatile SystemState_t system_state_t = SYS_STATE_RUN;
 
 /* USER CODE END PV */
@@ -69,8 +69,11 @@ static void MX_USART2_UART_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_TIM8_Init(void);
 static void MX_TIM12_Init(void);
+
 /* USER CODE BEGIN PFP */
+
 void set_viewing_light_lvl(uint8_t percent);
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
