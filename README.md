@@ -60,6 +60,6 @@ Pin configuration:
 | PA0 | Battery Monitor | ADC1_IN0[^2] | Uses DMA |
 | PA0 | Internal Temperature of ROV | ADC1_IN1[^2] | Uses DMA |
 
-[^1]: Pins PA6 and PB12 are physically connected, so if a leak is detected they both detect a HIGH signal.
+[^1]: Pins PA6 and PB12 are physically connected, so if a leak is detected they both send a HIGH signal.
 [^2]: Sampling rate is controlled by TIM2.
 
