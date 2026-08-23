@@ -11,14 +11,16 @@
 #ifndef MYUTILS_MY_UTILS_H_
 #define MYUTILS_MY_UTILS_H_
 
-
 #include <stdint.h>
 
-
-float util_map(float x, float in_min, float in_max, float out_min, float out_max);
+float util_map(float x, float in_min, float in_max, float out_min,
+		float out_max);
 
 float util_adc_to_voltage(uint16_t val);
 
-void  util_set_led_brightness_pct(uint8_t percent);
+void util_set_led_brightness_pct(uint8_t percent);
+
+float util_average_channel(const volatile uint16_t *buf, uint32_t num_channels,
+		uint32_t samples_per_channel, uint32_t channel_index);
 
 #endif /* MYUTILS_MY_UTILS_H_ */
