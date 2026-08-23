@@ -92,7 +92,7 @@ static void MX_TIM2_Init(void);
 
 void emergency_shutdown(void);
 void set_viewing_light_lvl(uint8_t percent);
-float get_battery_voltage(float raw_avg);
+float get_battery_voltage();
 
 /* USER CODE END PFP */
 
@@ -171,11 +171,8 @@ int main(void) {
 		/* USER CODE BEGIN 3 */
 
 		if (HAL_GetTick() - lastPrint > 1500) {
-			float avg = util_average_channel(adc1_raw_buffer, ADC1_NUM_CHANNELS,
-			ADC1_SAMPLES_PER_CHANNEL, CH_BATTERY);
-			float adcV = (avg / 4095.0f) * 3.3f;
-			float batteryV = get_battery_voltage(avg);
-			printf("adcV = %0.3f, batteryV = %0.3f\n", adcV, batteryV);
+			float batteryV = get_battery_voltage();
+			printf("Battery Voltage = %0.3f\n", batteryV);
 			lastPrint = HAL_GetTick();
 		}
 
@@ -674,10 +671,22 @@ void set_viewing_light_lvl(uint8_t percent) {
 	__HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, duty_ticks); // Update PWM duty cycle to apply the new brightness
 }
 
-float get_battery_voltage(float raw_avg) {
-	float v_adc = (raw_avg / 4095.0f) * 3.3f;
+/**
+ * @brief Calculates the battery voltage from the ADC reading.
+ *
+ * Averages the raw ADC samples for the battery channel, converts the
+ * result to a voltage using the ADC reference voltage (3.3V) and
+ * resolution (12-bit, 0-4095), then scales it by the voltage divider
+ * ratio (BATTERY_MONITOR_R1 + BATTERY_MONITOR_R2) / BATTERY_MONITOR_R2
+ * to recover the actual battery voltage.
+ *
+ * @return float Battery voltage in volts.
+ */
+float get_battery_voltage() {
+	float raw_avg = util_average_channel(adc1_raw_buffer, ADC1_NUM_CHANNELS,
+				ADC1_SAMPLES_PER_CHANNEL, CH_BATTERY);
 	float ratio = (BATTERY_MONITOR_R1 + BATTERY_MONITOR_R2) / BATTERY_MONITOR_R2;
-	return ratio * v_adc;
+	return ratio * (raw_avg / 4095.0f) * 3.3f;;
 }
 
 /* USER CODE END 4 */
