@@ -57,6 +57,9 @@ Pin configuration:
 | PA6 | Leak Sensor[^1] | TIM8 BKIN | auto terminates TIM8 PWM signals |
 | PB12 | Leak Sensor[^1] | TIM1 BKIN | auto terminates TIM1 PWM signals |
 | PB15 | Viewing Lights | TIM12_CH2 | Generates 1KHz Signal |
+| PA0 | Battery Monitor | ADC1_IN0[^2] | Uses DMA |
+| PA0 | Internal Temperature of ROV | ADC1_IN1[^2] | Uses DMA |
 
 [^1]: Pins PA6 and PB12 are physically connected, so if a leak is detected they both detect a HIGH signal.
+[^2]: Sampling rate is controlled by TIM2.
 
