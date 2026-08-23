@@ -14,4 +14,4 @@
 ../Core/Src/main.c:654:6:HAL_TIMEx_BreakCallback	16	static
 ../Core/Src/main.c:665:6:set_viewing_light_lvl	24	static
 ../Core/Src/main.c:678:7:get_battery_voltage	24	static
-../Core/Src/main.c:691:6:Error_Handler	4	static,ignoring_inline_asm
+../Core/Src/main.c:690:6:Error_Handler	4	static,ignoring_inline_asm

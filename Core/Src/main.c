@@ -50,8 +50,8 @@ typedef enum {
 
 #define ADC1_NUM_CHANNELS 2 // number of channels use on ADC1
 #define ADC1_SAMPLES_PER_CHANNEL 32 // number of samples to take / note: TIM2 (1KHz)
-#define BATTERY_MONITOR_R1 100000 // R1 (100K) of voltage divider for battery monitor.
-#define BATTERY_MONITOR_R2 18000 // R2 (18K) of voltage divider for battery monitor.
+#define BATTERY_MONITOR_R1 100000.0f // R1 (100K) of voltage divider for battery monitor / MUST BE DEFINED AS FLOATS.
+#define BATTERY_MONITOR_R2 18000.0f // R2 (18K) of voltage divider for battery monitor / MUST BE DEFINED AS FLOATS.
 
 /* USER CODE END PD */
 
@@ -173,7 +173,7 @@ int main(void) {
 		if (HAL_GetTick() - lastPrint > 1500) {
 			float avg = util_average_channel(adc1_raw_buffer, ADC1_NUM_CHANNELS,
 			ADC1_SAMPLES_PER_CHANNEL, CH_BATTERY);
-			float adcV = (avg / 4095.0f) * 3.3;
+			float adcV = (avg / 4095.0f) * 3.3f;
 			float batteryV = get_battery_voltage(avg);
 			printf("adcV = %0.3f, batteryV = %0.3f\n", adcV, batteryV);
 			lastPrint = HAL_GetTick();
@@ -677,8 +677,7 @@ void set_viewing_light_lvl(uint8_t percent) {
 
 float get_battery_voltage(float raw_avg) {
 	float v_adc = (raw_avg / 4095.0f) * 3.3f;
-	float ratio = ((float) BATTERY_MONITOR_R1 + (float) BATTERY_MONITOR_R2)
-			/ (float) BATTERY_MONITOR_R2;
+	float ratio = (BATTERY_MONITOR_R1 + BATTERY_MONITOR_R2) / BATTERY_MONITOR_R2;
 	return ratio * v_adc;
 }
 

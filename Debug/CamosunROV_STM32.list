@@ -39,13 +39,13 @@ Idx Name          Size      VMA       LMA       File off  Algn
                   CONTENTS, READONLY, DEBUGGING, OCTETS
  17 .debug_line   00013170  00000000  00000000  00043b94  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 18 .debug_str    000e06a3  00000000  00000000  00056d04  2**0
+ 18 .debug_str    000e06a9  00000000  00000000  00056d04  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 19 .comment      00000043  00000000  00000000  001373a7  2**0
+ 19 .comment      00000043  00000000  00000000  001373ad  2**0
                   CONTENTS, READONLY
- 20 .debug_frame  00004ee0  00000000  00000000  001373ec  2**2
+ 20 .debug_frame  00004ee0  00000000  00000000  001373f0  2**2
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 21 .debug_line_str 0000006b  00000000  00000000  0013c2cc  2**0
+ 21 .debug_line_str 0000006b  00000000  00000000  0013c2d0  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
 
 Disassembly of section .text:
@@ -3349,10 +3349,9 @@ float get_battery_voltage(float raw_avg) {
  8001cd2:	ed9f 7a0b 	vldr	s14, [pc, #44]	@ 8001d00 <get_battery_voltage+0x44>
  8001cd6:	ee67 7a87 	vmul.f32	s15, s15, s14
  8001cda:	edc7 7a03 	vstr	s15, [r7, #12]
-	float ratio = ((float) BATTERY_MONITOR_R1 + (float) BATTERY_MONITOR_R2)
+	float ratio = (BATTERY_MONITOR_R1 + BATTERY_MONITOR_R2) / BATTERY_MONITOR_R2;
  8001cde:	4b09      	ldr	r3, [pc, #36]	@ (8001d04 <get_battery_voltage+0x48>)
  8001ce0:	60bb      	str	r3, [r7, #8]
-			/ (float) BATTERY_MONITOR_R2;
 	return ratio * v_adc;
  8001ce2:	ed97 7a02 	vldr	s14, [r7, #8]
  8001ce6:	edd7 7a03 	vldr	s15, [r7, #12]
