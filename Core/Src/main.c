@@ -48,6 +48,9 @@ typedef enum {
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
+#define BRIGHTNESS_DEFAULT 5 // default brightness for viewing lights.
+#define BRIGHTNESS_MAX 100 // max brightness percent for viewing light /  auto clamped to 100%
+
 #define ADC1_NUM_CHANNELS 2 // number of channels use on ADC1
 #define ADC1_SAMPLES_PER_CHANNEL 32 // number of samples to take / note: TIM2 (1KHz)
 #define BATTERY_MONITOR_R1 100000.0f // R1 (100K) of voltage divider for battery monitor / MUST BE DEFINED AS FLOATS.
@@ -137,27 +140,43 @@ int main(void) {
 	MX_ADC1_Init();
 	MX_TIM2_Init();
 	/* USER CODE BEGIN 2 */
-
-	HAL_TIM_PWM_Start(&htim12, TIM_CHANNEL_2);
-	HAL_TIM_Base_Start(&htim2);
-	HAL_ADC_Start_DMA(&hadc1, (uint32_t*) adc1_raw_buffer,
-	ADC1_NUM_CHANNELS * ADC1_SAMPLES_PER_CHANNEL);
-
-	// Start PWM for all motors (TIM1 and TIM8), and enable the break interrupt for both timers (for leak sensor)
-	HAL_TIM_PWM_Start(MOTOR1_TIM, MOTOR1_CHANNEL); // Start PWM for Motor1
-	HAL_TIM_PWM_Start(MOTOR2_TIM, MOTOR2_CHANNEL); // Start PWM for Motor2
-	HAL_TIM_PWM_Start(MOTOR3_TIM, MOTOR3_CHANNEL); // Start PWM for Motor3
-	HAL_TIM_PWM_Start(MOTOR4_TIM, MOTOR4_CHANNEL); // Start PWM for Motor4
-	HAL_TIM_PWM_Start(MOTOR5_TIM, MOTOR5_CHANNEL); // Start PWM for Motor5
-	HAL_TIM_PWM_Start(MOTOR6_TIM, MOTOR6_CHANNEL); // Start PWM for Motor6
+	/*
+	 * These must be at the top to catch any leaks on startup.
+	 */
 	__HAL_TIM_ENABLE_IT(&htim1, TIM_IT_BREAK); // <-- enable the break interrupt
-	__HAL_TIM_ENABLE_IT(&htim8, TIM_IT_BREAK); // <-- enable the break interrupt
-	reset_reinit(); // # initialize motors (sets throttle to 0%)
+	__HAL_TIM_ENABLE_IT(&htim8, TIM_IT_BREAK);
 
-	HAL_Delay(1000);
-	HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_SET);
+	if (system_state_t == SYS_STATE_RUN) {
+		// Flashing green led once to notify boot up starting
+		HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_SET);
+		HAL_Delay(250);
+		HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_RESET);
+		HAL_Delay(500);
 
-	set_viewing_light_lvl(10);
+		// Start viewing lights
+		HAL_TIM_PWM_Start(&htim12, TIM_CHANNEL_2);
+		set_viewing_light_lvl(BRIGHTNESS_DEFAULT);
+
+		// Starting ADC DMA with timer
+		HAL_TIM_Base_Start(&htim2);
+		HAL_ADC_Start_DMA(&hadc1, (uint32_t*) adc1_raw_buffer,
+		ADC1_NUM_CHANNELS * ADC1_SAMPLES_PER_CHANNEL);
+
+		// Initialize Motors (throttle to 0%) and start their PWM signal
+		motor_reinit(); // # initialize motors (sets throttle to 0%)
+		HAL_TIM_PWM_Start(MOTOR1_TIM, MOTOR1_CHANNEL); // Start PWM for Motor1
+		HAL_TIM_PWM_Start(MOTOR2_TIM, MOTOR2_CHANNEL); // Start PWM for Motor2
+		HAL_TIM_PWM_Start(MOTOR3_TIM, MOTOR3_CHANNEL); // Start PWM for Motor3
+		HAL_TIM_PWM_Start(MOTOR4_TIM, MOTOR4_CHANNEL); // Start PWM for Motor4
+		HAL_TIM_PWM_Start(MOTOR5_TIM, MOTOR5_CHANNEL); // Start PWM for Motor5
+		HAL_TIM_PWM_Start(MOTOR6_TIM, MOTOR6_CHANNEL); // Start PWM for Motor6
+
+		// Flashing green LED to show boot up sequence is done.
+		for (int i = 0; i < 11; i++) {
+			HAL_GPIO_TogglePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin);
+			HAL_Delay(50);
+		}
+	}
 
 	uint32_t lastPrint = 0;
 
@@ -628,7 +647,6 @@ void emergency_shutdown(void) {
 		return; // system state is already fault.
 	}
 	system_state_t = SYS_STATE_FAULT;
-	HAL_GPIO_WritePin(RED_LED_GPIO_Port, RED_LED_Pin, GPIO_PIN_SET);
 
 	__HAL_TIM_DISABLE_IT(&htim8, TIM_IT_BREAK);
 	__HAL_TIM_DISABLE_IT(&htim1, TIM_IT_BREAK);
@@ -661,11 +679,16 @@ void HAL_TIMEx_BreakCallback(TIM_HandleTypeDef *htim) {
  */
 void set_viewing_light_lvl(uint8_t percent) {
 	if (percent > 100) {
-		percent = 100;  // clamp
+		percent = 100;  // clamp to 100%, absolute max brightness.
+	}
+
+	if (percent > BRIGHTNESS_MAX) { // clamp to USER max brightness.
+		percent = BRIGHTNESS_MAX;
 	}
 
 	// Map the 0-100% brightness input to the timer's duty-cycle range (0-1000, matching htim12's period)
-	float duty_ticks_f = util_map( percent, 0.0f, 100.0f, 0.0f, htim12.Init.Period);
+	float duty_ticks_f = util_map(percent, 0.0f, 100.0f, 0.0f,
+			htim12.Init.Period);
 	uint32_t duty_ticks = (uint32_t) duty_ticks_f; // Truncate to a whole number of timer ticks
 
 	__HAL_TIM_SET_COMPARE(&htim12, TIM_CHANNEL_2, duty_ticks); // Update PWM duty cycle to apply the new brightness
@@ -684,7 +707,7 @@ void set_viewing_light_lvl(uint8_t percent) {
  */
 float get_battery_voltage() {
 	float raw_avg = util_average_channel(adc1_raw_buffer, ADC1_NUM_CHANNELS,
-				ADC1_SAMPLES_PER_CHANNEL, CH_BATTERY);
+	ADC1_SAMPLES_PER_CHANNEL, CH_BATTERY);
 	float ratio = (BATTERY_MONITOR_R1 + BATTERY_MONITOR_R2) / BATTERY_MONITOR_R2;
 	return ratio * (raw_avg / 4095.0f) * 3.3f;;
 }
