@@ -6,13 +6,14 @@ It contains the firmware and related resources for the STM32 microcontroller tha
 The STM32 chip used is the STM32F446RE, which is a high-performance ARM Cortex-M4 microcontroller.<br>
 Datasheet: [STM32F446RE Datasheet](https://www.st.com/en/microcontrollers-microprocessors/stm32f446/documentation.html)
 
-This custom STM32 board is designed to communicate with a Raspberry Pi 4 via UART. 
-It receives commands from the Raspberry Pi and controls the ROV's motors and sensors accordingly.
+This custom STM32 board is designed to communicate with a Raspberry Pi 4 via UART.<br>
+It receives commands from the Raspberry Pi to control the ROV's motors and sensors accordingly, while sending sensor data back to the Pi.
 
 ## Features
 - Communicates with Raspberry Pi 4 via UART
 - Controls 6 motors with automatic cutoff with leak sensor
-- Interfaces with various sensors (e.g., Pressure sensor, Temperature sensor)
+- Leak Detection
+- Interfaces with various sensors (e.g, Pressure sensor, Temperature sensor, and IMU)
 - Battery Voltage Monitor
 - Viewing Lights
 
@@ -54,12 +55,21 @@ Pin configuration:
 | PA8  | Motor 4 PWM | TIM1_CH1 | |
 | PC9  | Motor 5 PWM | TIM8_CH4 | Generates 300Hz Signal |
 | PC8  | Motor 6 PWM | TIM8_CH3 | |
-| PA6 | Leak Sensor[^1] | TIM8 BKIN | auto terminates TIM8 PWM signals |
-| PB12 | Leak Sensor[^1] | TIM1 BKIN | auto terminates TIM1 PWM signals |
+| PA6 | Leak Sensor | TIM8 BKIN | auto terminates TIM8 PWM signals |
+| PB12 | Leak Sensor | TIM1 BKIN | auto terminates TIM1 PWM signals |
 | PB15 | Viewing Lights | TIM12_CH2 | Generates 1KHz Signal |
-| PA0 | Battery Monitor | ADC1_IN0[^2] | Uses DMA |
-| PA0 | Internal Temperature of ROV | ADC1_IN1[^2] | Uses DMA |
+| PA0 | Battery Monitor | ADC1_IN0 | Uses DMA |
+| PA1 | Internal Temperature | ADC1_IN1 | Uses DMA |
 
-[^1]: Pins PA6 and PB12 are physically connected, so if a leak is detected they both send a HIGH signal.
-[^2]: Sampling rate is controlled by TIM2.
+*Note:*<br>
+- *PA6 and PB12 are physically connected, hence a leak triggers HIGH on both.*  
+- *ADC sampling rate is controlled by TIM2, conversion rate is still controlled by APB1 frequency.*
 
+
+# TODO:
+
+- [ ] Add Thermistor firmware to ADC1_IN1
+- [ ] Add I2C devices (Temperature, Pressure, and IMU Sensor)
+- [ ] Setup UART from Pi
+- [ ] Setup UART to Pi
+- [ ] Design PCB
