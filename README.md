@@ -72,4 +72,5 @@ Pin configuration:
 - [ ] Add I2C devices (Temperature, Pressure, and IMU Sensor)
 - [ ] Setup UART from Pi
 - [ ] Setup UART to Pi
+- [ ] Finish Emergency Shutdown Function
 - [ ] Design PCB
