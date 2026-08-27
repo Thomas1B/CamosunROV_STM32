@@ -68,7 +68,6 @@ Pin configuration:
 
 # TODO:
 
-- [ ] Add Thermistor firmware to ADC1_IN1
 - [ ] Add I2C devices (Temperature, Pressure, and IMU Sensor)
 - [ ] Setup UART from Pi
 - [ ] Setup UART to Pi
