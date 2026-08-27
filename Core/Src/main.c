@@ -268,7 +268,11 @@ int main(void) {
 		if (system_state_t == SYS_STATE_LEAK_FAULT) {
 			HAL_ADC_Stop_DMA(&hadc1);
 			HAL_TIM_Base_Stop(&htim2);
-			while (1) {
+
+			// TODO: signal fault to Pi (set a flag here; send over UART from main loop, not from ISR)
+
+			while (system_state_t == SYS_STATE_LEAK_FAULT) {
+				// TODO: what to do while there is a leak
 			};
 		}
 
@@ -761,7 +765,7 @@ void emergency_shutdown(void) {
 	__HAL_TIM_DISABLE_IT(&htim1, TIM_IT_BREAK);
 	HAL_TIM_PWM_Stop(&htim12, TIM_CHANNEL_2);
 
-// TODO: signal fault to Pi (set a flag here; send over UART from main loop, not from ISR)
+// do not put any blocking calls in the function, use the SYS_STATE_t.
 }
 
 /**
