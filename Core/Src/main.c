@@ -26,6 +26,7 @@
 #include "motors.h"
 #include "thermistor.h"
 #include "bno055_stm32.h"
+#include "bar30.h"
 
 /* USER CODE END Includes */
 
@@ -99,6 +100,9 @@ bno055_calibration_data_t savedCalData = { .offset.accel = { .x = -7, .y = 6,
 		.z = -33 }, .offset.mag = { .x = -76, .y = -423, .z = -216 },
 		.offset.gyro = { .x = -2, .y = -3, .z = -1 }, .radius.accel = 1000,
 		.radius.mag = 1484 };
+
+MS5837_t bar30;
+float depth = 0;
 
 /* USER CODE END PV */
 
@@ -183,6 +187,13 @@ int main(void) {
 		bno055_setOperationMode(BNO055_OPERATION_MODE_ACCGYRO);
 		bno055_setCalibrationData(savedCalData);
 
+		// Setting bar30 pressure sensor
+		MS5837_SetI2C(&bar30, &hi2c1); // set the I2C handle for the sensor
+		MS5837_SetOSR(&bar30, MS5837_OSR_256); // set the oversampling rate for the sensor
+		MS5837_SetModel(&bar30, MS5837_MODEL_30BA); // set the sensor model
+		bar30.secondOrderCalculation = false; // enable second order calculation, compensates for water below 15C.
+		MS5837_Init(&bar30);
+
 		// Start viewing lights
 		HAL_TIM_PWM_Start(&htim12, TIM_CHANNEL_2);
 		set_viewing_light_lvl(BRIGHTNESS_DEFAULT);
@@ -222,6 +233,7 @@ int main(void) {
 		if (HAL_GetTick() - lastPrint > 1500) {
 			float batteryV = get_battery_voltage();
 			float internalT = get_internal_temperature();
+			depth = MS5837_GetDepth(&bar30);
 
 			imu_vec = bno055_getVectorAccelerometer();
 			printf("Accel: X=%0.2f m/s^2, Y=%0.2f m/s^2, Z=%0.2f m/s^2\r\n", imu_vec.x, imu_vec.y, imu_vec.z);
@@ -230,6 +242,7 @@ int main(void) {
 
 			printf("Battery Voltage = %0.3f, ", batteryV);
 			printf("Internal Temperature = %0.3f\n", internalT);
+			printf("Depth = %0.2f \n", depth);
 
 			lastPrint = HAL_GetTick();
 		}
