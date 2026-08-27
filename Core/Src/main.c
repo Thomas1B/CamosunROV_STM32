@@ -45,8 +45,8 @@ typedef enum {
 	SYS_STATE_RUN = 0,      // Normal operation; no faults latched
 	SYS_STATE_LEAK_FAULT,   // Fault latched: leak detected
 	SYS_STATE_IMU_FAULT,    // Fault latched: IMU failure or invalid data
-	SYS_STATE_DEPTH_FAULT,  // Fault latched: depth sensor failure or out-of-range reading
-	SYS_STATE_TEMP_FAULT    // Fault latched: temperature sensor failure or out-of-range reading
+	SYS_STATE_DEPTH_FAULT, // Fault latched: depth sensor failure or out-of-range reading
+	SYS_STATE_TEMP_FAULT // Fault latched: temperature sensor failure or out-of-range reading
 } SystemState_t;
 
 /**
@@ -254,7 +254,8 @@ int main(void) {
 			printf("Gyro: X=%0.2f dps, Y=%0.2f dps, Z=%0.2f dps\r\n", imu_vec.x,
 					imu_vec.y, imu_vec.z);
 			imu_vec = bno055_getVectorEuler();
-			printf("Euler: Heading=%0.2f, Roll=%0.2f, Pitch=%0.2f\r\n", imu_vec.x, imu_vec.y, imu_vec.z);
+			printf("Euler: Heading=%0.2f, Roll=%0.2f, Pitch=%0.2f\r\n",
+					imu_vec.x, imu_vec.y, imu_vec.z);
 			printf("IMU Status: %d \r\n", bno055_getSystemStatus());
 
 			printf("Battery Voltage = %0.3f, ", battery_voltage);
@@ -262,6 +263,13 @@ int main(void) {
 			printf("Depth = %0.2f \n", depth);
 
 			lastPrint = HAL_GetTick();
+		}
+
+		if (system_state_t == SYS_STATE_LEAK_FAULT) {
+			HAL_ADC_Stop_DMA(&hadc1);
+			HAL_TIM_Base_Stop(&htim2);
+			while (1) {
+			};
 		}
 
 	}
