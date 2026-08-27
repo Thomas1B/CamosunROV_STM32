@@ -37,13 +37,16 @@
  * @brief Top-level system state.
  *
  * Tracks whether the system is operating normally or has latched a fault.
+ * Once a fault state is entered, it remains latched until explicitly
+ * cleared/reset (e.g. via a fault-reset routine), even if the underlying
+ * condition clears.
  */
 typedef enum {
-	SYS_STATE_RUN = 0, /* normal operation */
-	SYS_STATE_LEAK_FAULT,/* fault latched (e.g. leak detected);*/
-	SYS_STATE_IMU_FAULT,
-	SYS_STATE_DEPTH_FAULT,
-	SYS_STATE_TEMP_FAULT
+	SYS_STATE_RUN = 0,      // Normal operation; no faults latched
+	SYS_STATE_LEAK_FAULT,   // Fault latched: leak detected
+	SYS_STATE_IMU_FAULT,    // Fault latched: IMU failure or invalid data
+	SYS_STATE_DEPTH_FAULT,  // Fault latched: depth sensor failure or out-of-range reading
+	SYS_STATE_TEMP_FAULT    // Fault latched: temperature sensor failure or out-of-range reading
 } SystemState_t;
 
 /**
@@ -61,8 +64,11 @@ typedef enum {
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
+#define SURFACE_PRESSURE 1050.25f // surface barometric pressure reference (units are either hPa or mbar)
+#define WATER_DENSITY 1000.00f // density of water, change this depending on freshwater or saltwater: 1000 kg/m^3 or 1025 kg/m^3 (avg)
+
 #define BRIGHTNESS_DEFAULT 5 // default brightness for viewing lights.
-#define BRIGHTNESS_MAX 100 // max brightness percent for viewing light /  auto clamped to 100%
+#define BRIGHTNESS_MAX 100 // max brightness percent for viewing light / auto clamped to 100%
 
 #define ADC1_NUM_CHANNELS 2 // number of channels use on ADC1
 #define ADC1_SAMPLES_PER_CHANNEL 16 // number of samples to take / note: TIM2 (1KHz)
@@ -95,14 +101,18 @@ UART_HandleTypeDef huart2;
 volatile SystemState_t system_state_t = SYS_STATE_RUN; // current system state // RUN or FAULT
 volatile uint16_t adc1_raw_buffer[ADC1_NUM_CHANNELS * ADC1_SAMPLES_PER_CHANNEL]; // array to store ADC1 raw data. / data[CH0, CH1, CH0, CH1, ..., CH0, CH1]
 
-bno055_vector_t imu_vec; // Create an instance of the BNO055 sensor structure
+bno055_vector_t imu_vec; // instance of the BNO055 sensor
 bno055_calibration_data_t savedCalData = { .offset.accel = { .x = -7, .y = 6,
 		.z = -33 }, .offset.mag = { .x = -76, .y = -423, .z = -216 },
 		.offset.gyro = { .x = -2, .y = -3, .z = -1 }, .radius.accel = 1000,
 		.radius.mag = 1484 };
 
-MS5837_t bar30;
-float depth = 0;
+MS5837_t bar30; //  instance of bar30 pressure sensor
+
+float battery_voltage; // var to store battery voltage
+float internal_temperature; // var to store internal temperature
+float water_temperature; // var to store water temperature
+float depth; // var to store depth
 
 /* USER CODE END PV */
 
@@ -174,7 +184,7 @@ int main(void) {
 	__HAL_TIM_ENABLE_IT(&htim1, TIM_IT_BREAK); // <-- enable the break interrupt
 	__HAL_TIM_ENABLE_IT(&htim8, TIM_IT_BREAK);
 
-	if (system_state_t == SYS_STATE_RUN) {
+	if (system_state_t != SYS_STATE_LEAK_FAULT) {
 		// Flashing green led once to notify boot up starting
 		HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_SET);
 		HAL_Delay(250);
@@ -184,10 +194,12 @@ int main(void) {
 		// Setting BNO055 IMU device
 		bno055_assignI2C(&hi2c1); // Assign the I2C handle to the BNO055 library
 		bno055_setup();
-		bno055_setOperationMode(BNO055_OPERATION_MODE_ACCGYRO);
+		bno055_setOperationMode(BNO055_OPERATION_MODE_NDOF);
 		bno055_setCalibrationData(savedCalData);
 
 		// Setting bar30 pressure sensor
+		MS5837_SetSurfaceReference(&bar30, SURFACE_PRESSURE);
+		MS5837_SetFluidDensity(&bar30, WATER_DENSITY);
 		MS5837_SetI2C(&bar30, &hi2c1); // set the I2C handle for the sensor
 		MS5837_SetOSR(&bar30, MS5837_OSR_256); // set the oversampling rate for the sensor
 		MS5837_SetModel(&bar30, MS5837_MODEL_30BA); // set the sensor model
@@ -231,17 +243,22 @@ int main(void) {
 		/* USER CODE BEGIN 3 */
 
 		if (HAL_GetTick() - lastPrint > 1500) {
-			float batteryV = get_battery_voltage();
-			float internalT = get_internal_temperature();
+			battery_voltage = get_battery_voltage();
+			internal_temperature = get_internal_temperature();
 			depth = MS5837_GetDepth(&bar30);
 
 			imu_vec = bno055_getVectorAccelerometer();
-			printf("Accel: X=%0.2f m/s^2, Y=%0.2f m/s^2, Z=%0.2f m/s^2\r\n", imu_vec.x, imu_vec.y, imu_vec.z);
+			printf("Accel: X=%0.2f m/s^2, Y=%0.2f m/s^2, Z=%0.2f m/s^2\r\n",
+					imu_vec.x, imu_vec.y, imu_vec.z);
 			imu_vec = bno055_getVectorGyroscope();
-			printf("Gyro: X=%0.2f dps, Y=%0.2f dps, Z=%0.2f dps\r\n", imu_vec.x, imu_vec.y, imu_vec.z);
+			printf("Gyro: X=%0.2f dps, Y=%0.2f dps, Z=%0.2f dps\r\n", imu_vec.x,
+					imu_vec.y, imu_vec.z);
+			imu_vec = bno055_getVectorEuler();
+			printf("Euler: Heading=%0.2f, Roll=%0.2f, Pitch=%0.2f\r\n", imu_vec.x, imu_vec.y, imu_vec.z);
+			printf("IMU Status: %d \r\n", bno055_getSystemStatus());
 
-			printf("Battery Voltage = %0.3f, ", batteryV);
-			printf("Internal Temperature = %0.3f\n", internalT);
+			printf("Battery Voltage = %0.3f, ", battery_voltage);
+			printf("Internal Temperature = %0.3f\n", internal_temperature);
 			printf("Depth = %0.2f \n", depth);
 
 			lastPrint = HAL_GetTick();
