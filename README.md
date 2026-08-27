@@ -9,6 +9,17 @@ Datasheet: [STM32F446RE Datasheet](https://www.st.com/en/microcontrollers-microp
 This custom STM32 board is designed to communicate with a Raspberry Pi 4 via UART.<br>
 It receives commands from the Raspberry Pi to control the ROV's motors and sensors accordingly, while sending sensor data back to the Pi.
 
+<hr>
+
+# TODO:
+
+- [ ] Add I2C devices (Temperature, Pressure, and IMU Sensor)
+- [ ] Setup UART from Pi
+- [ ] Setup UART to Pi
+- [ ] Finish Emergency Shutdown Function
+- [ ] Design PCB
+<hr>
+
 ## Features
 - Communicates with Raspberry Pi 4 via UART
 - Controls 6 motors with automatic cutoff with leak sensor
@@ -65,11 +76,3 @@ Pin configuration:
 - *PA6 and PB12 are physically connected, hence a leak triggers HIGH on both.*  
 - *ADC sampling rate is controlled by TIM2, conversion rate is still controlled by APB1 frequency.*
 
-
-# TODO:
-
-- [ ] Add I2C devices (Temperature, Pressure, and IMU Sensor)
-- [ ] Setup UART from Pi
-- [ ] Setup UART to Pi
-- [ ] Finish Emergency Shutdown Function
-- [ ] Design PCB
