@@ -78,7 +78,7 @@ static inline uint32_t throttleToPulse(const MotorPulseLimits *limits,
  * bring the motor subsystem back to a known, ready-to-run state.
  *
  */
-void motor_reinit() {
+void motors_reinit() {
 
 	motor1(0);
 	motor2(0);

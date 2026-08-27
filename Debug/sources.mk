@@ -26,5 +26,6 @@ Core/Motors \
 Core/MyUtils \
 Core/Src \
 Core/Startup \
+Core/Thermistor \
 Drivers/STM32F4xx_HAL_Driver/Src \
 

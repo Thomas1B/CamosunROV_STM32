@@ -21,9 +21,10 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "motors.h"
-#include "my_utils.h"
 #include <stdio.h>
+#include "my_utils.h"
+#include "motors.h"
+#include "thermistor.h"
 
 /* USER CODE END Includes */
 
@@ -40,7 +41,8 @@ typedef enum {
 } SystemState_t;
 
 typedef enum {
-	CH_BATTERY = 0, CH_TEMPERATURE
+	CH_BATTERY = 0, // battery channel
+	CH_TEMPERATURE // thermistor channel
 } ADC1_channel_t;
 
 /* USER CODE END PTD */
@@ -52,7 +54,7 @@ typedef enum {
 #define BRIGHTNESS_MAX 100 // max brightness percent for viewing light /  auto clamped to 100%
 
 #define ADC1_NUM_CHANNELS 2 // number of channels use on ADC1
-#define ADC1_SAMPLES_PER_CHANNEL 32 // number of samples to take / note: TIM2 (1KHz)
+#define ADC1_SAMPLES_PER_CHANNEL 16 // number of samples to take / note: TIM2 (1KHz)
 #define BATTERY_MONITOR_R1 100000.0f // R1 (100K) of voltage divider for battery monitor / MUST BE DEFINED AS FLOATS.
 #define BATTERY_MONITOR_R2 18000.0f // R2 (18K) of voltage divider for battery monitor / MUST BE DEFINED AS FLOATS.
 
@@ -96,6 +98,7 @@ static void MX_TIM2_Init(void);
 void emergency_shutdown(void);
 void set_viewing_light_lvl(uint8_t percent);
 float get_battery_voltage();
+float get_internal_temperature();
 
 /* USER CODE END PFP */
 
@@ -163,7 +166,7 @@ int main(void) {
 		ADC1_NUM_CHANNELS * ADC1_SAMPLES_PER_CHANNEL);
 
 		// Initialize Motors (throttle to 0%) and start their PWM signal
-		motor_reinit(); // # initialize motors (sets throttle to 0%)
+		motors_reinit(); // # initialize motors (sets throttle to 0%)
 		HAL_TIM_PWM_Start(MOTOR1_TIM, MOTOR1_CHANNEL); // Start PWM for Motor1
 		HAL_TIM_PWM_Start(MOTOR2_TIM, MOTOR2_CHANNEL); // Start PWM for Motor2
 		HAL_TIM_PWM_Start(MOTOR3_TIM, MOTOR3_CHANNEL); // Start PWM for Motor3
@@ -191,7 +194,9 @@ int main(void) {
 
 		if (HAL_GetTick() - lastPrint > 1500) {
 			float batteryV = get_battery_voltage();
-			printf("Battery Voltage = %0.3f\n", batteryV);
+			float internalT = get_internal_temperature();
+			printf("Battery Voltage = %0.3f, ", batteryV);
+			printf("Internal Temperature = %0.3f\n", internalT);
 			lastPrint = HAL_GetTick();
 		}
 
@@ -710,6 +715,21 @@ float get_battery_voltage() {
 	ADC1_SAMPLES_PER_CHANNEL, CH_BATTERY);
 	float ratio = (BATTERY_MONITOR_R1 + BATTERY_MONITOR_R2) / BATTERY_MONITOR_R2;
 	return ratio * (raw_avg / 4095.0f) * 3.3f;;
+}
+
+/**
+ * @brief Calculates the NTC thermistor temperature from the ADC reading.
+ *
+ * Averages the raw ADC samples for the temperature channel, then converts
+ * ADC count -> resistance -> temperature (see thermistor.c).
+ *
+ * @return float Temperature in degrees Celsius.
+ */
+float get_internal_temperature() {
+	float raw_avg = util_average_channel(adc1_raw_buffer, ADC1_NUM_CHANNELS,
+	ADC1_SAMPLES_PER_CHANNEL, CH_TEMPERATURE);
+	float R = therm_get_ntc_resistance(raw_avg);
+	return therm_get_temperature(R);
 }
 
 /* USER CODE END 4 */
