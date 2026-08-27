@@ -12,7 +12,7 @@ It receives commands from the Raspberry Pi to control the ROV's motors and senso
 <hr>
 
 # TODO:
-
+- [ ] Find each ESC's deadband range
 - [ ] Add I2C devices (Temperature, Pressure, and IMU Sensor)
 - [ ] Setup UART from Pi
 - [ ] Setup UART to Pi
