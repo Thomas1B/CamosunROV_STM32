@@ -1,2 +1,2 @@
-../Core/Thermistor/thermistor.c:38:7:therm_get_ntc_resistance	1
-../Core/Thermistor/thermistor.c:55:7:therm_get_temperature	1
+../Core/Thermistor/thermistor.c:47:7:therm_get_ntc_resistance	1
+../Core/Thermistor/thermistor.c:64:7:therm_get_temperature	1

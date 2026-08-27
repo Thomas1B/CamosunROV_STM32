@@ -31,15 +31,22 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
-/* Tracks whether the system is operating normally or has hit a fault
- * (e.g. leak detected via TIM1/TIM8 break input). Checked by the main
- * loop, the break callback, and motor functions to gate behavior during
- * a fault.  */
+/**
+ * @brief Top-level system state.
+ *
+ * Tracks whether the system is operating normally or has latched a fault.
+ */
 typedef enum {
 	SYS_STATE_RUN = 0, /* normal operation */
 	SYS_STATE_FAULT/* fault latched (e.g. leak detected);*/
 } SystemState_t;
 
+
+/**
+ * @brief ADC1 channel selection.
+ *
+ * Identifies which physical input is being read via ADC1.
+ */
 typedef enum {
 	CH_BATTERY = 0, // battery channel
 	CH_TEMPERATURE // thermistor channel
@@ -55,6 +62,7 @@ typedef enum {
 
 #define ADC1_NUM_CHANNELS 2 // number of channels use on ADC1
 #define ADC1_SAMPLES_PER_CHANNEL 16 // number of samples to take / note: TIM2 (1KHz)
+
 #define BATTERY_MONITOR_R1 100000.0f // R1 (100K) of voltage divider for battery monitor / MUST BE DEFINED AS FLOATS.
 #define BATTERY_MONITOR_R2 18000.0f // R2 (18K) of voltage divider for battery monitor / MUST BE DEFINED AS FLOATS.
 
@@ -97,8 +105,8 @@ static void MX_TIM2_Init(void);
 
 void emergency_shutdown(void);
 void set_viewing_light_lvl(uint8_t percent);
-float get_battery_voltage();
-float get_internal_temperature();
+float get_battery_voltage(void);
+float get_internal_temperature(void);
 
 /* USER CODE END PFP */
 
@@ -710,7 +718,7 @@ void set_viewing_light_lvl(uint8_t percent) {
  *
  * @return float Battery voltage in volts.
  */
-float get_battery_voltage() {
+float get_battery_voltage(void) {
 	float raw_avg = util_average_channel(adc1_raw_buffer, ADC1_NUM_CHANNELS,
 	ADC1_SAMPLES_PER_CHANNEL, CH_BATTERY);
 	float ratio = (BATTERY_MONITOR_R1 + BATTERY_MONITOR_R2) / BATTERY_MONITOR_R2;
@@ -725,7 +733,7 @@ float get_battery_voltage() {
  *
  * @return float Temperature in degrees Celsius.
  */
-float get_internal_temperature() {
+float get_internal_temperature(void) {
 	float raw_avg = util_average_channel(adc1_raw_buffer, ADC1_NUM_CHANNELS,
 	ADC1_SAMPLES_PER_CHANNEL, CH_TEMPERATURE);
 	float R = therm_get_ntc_resistance(raw_avg);
