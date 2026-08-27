@@ -4,9 +4,18 @@
  *  Created on: Aug 26, 2026
  *      Author: Thomas Bourgeois
  *
+ *  Description:
+ *      Driver support header for an NTC thermistor (Vishay NTCLE100E3103JB0,
+ *      10 kΩ @ 25°C, B25/85 = 3977K material).
  *
- *      This firmware is for a NTC thermistor, it uses the Steinhart and Hart equation to solve for temperature.
- *      Refer to your datasheet for coefficient values.
+ *      Temperature is computed from measured NTC resistance using the
+ *      extended Steinhart-Hart equation (per the Vishay NTCLE100E3 datasheet):
+ *
+ *          1/T(K) = A1 + B1*ln(R/Rref) + C1*ln^2(R/Rref) + D1*ln^3(R/Rref)
+ *
+ *      Coefficients A1-D1 are specific to the thermistor.
+ *      Refer to the datasheet for these values.
+
  */
 
 #include "thermistor.h"
