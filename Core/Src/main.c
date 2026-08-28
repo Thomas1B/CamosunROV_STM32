@@ -784,7 +784,7 @@ void emergency_shutdown(void) {
 	HAL_TIM_PWM_Stop(&htim12, TIM_CHANNEL_2); // stop viewing light PWM
 	HAL_ADC_Stop_DMA(&hadc1);   // stop battery/thermistor ADC sampling
 	HAL_TIM_Base_Stop(&htim2);  // stop the ADC trigger timer
-
+	// TODO: decide to whether to shutodwn I2C communication...
 }
 
 /**
