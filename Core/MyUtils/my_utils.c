@@ -45,8 +45,7 @@ float util_adc_to_voltage(uint16_t val) {
  *          sample starting at `channel_index` and returns the mean.
  *          Non-blocking -- only reads memory already written by DMA.
  *
- * @param[in] buf                 Interleaved raw sample buffer (volatile:
- *                                written by DMA; const: read-only here).
+ * @param[in] buf                 Interleaved raw sample buffer (volatile: written by DMA; const: read-only here).
  * @param[in] num_channels        Number of interleaved channels (ADC ranks).
  * @param[in] samples_per_channel Number of most-recent samples to average.
  * @param[in] channel_index       Zero-based channel index (rank order).

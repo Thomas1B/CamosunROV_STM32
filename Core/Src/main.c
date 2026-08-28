@@ -22,6 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
+#include <stdbool.h>
 #include "my_utils.h"
 #include "motors.h"
 #include "thermistor.h"
@@ -114,6 +115,7 @@ float internal_temperature; // var to store internal temperature
 float water_temperature; // var to store water temperature
 float depth; // var to store depth
 
+static bool emergency_shutdown_done = false;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -242,6 +244,10 @@ int main(void) {
 
 		/* USER CODE BEGIN 3 */
 
+		if (system_state_t == SYS_STATE_LEAK_FAULT) {
+			emergency_shutdown();
+		}
+
 		if (HAL_GetTick() - lastPrint > 1500) {
 			battery_voltage = get_battery_voltage();
 			internal_temperature = get_internal_temperature();
@@ -263,17 +269,6 @@ int main(void) {
 			printf("Depth = %0.2f \n", depth);
 
 			lastPrint = HAL_GetTick();
-		}
-
-		if (system_state_t == SYS_STATE_LEAK_FAULT) {
-			HAL_ADC_Stop_DMA(&hadc1);
-			HAL_TIM_Base_Stop(&htim2);
-
-			// TODO: signal fault to Pi (set a flag here; send over UART from main loop, not from ISR)
-
-			while (system_state_t == SYS_STATE_LEAK_FAULT) {
-				// TODO: what to do while there is a leak
-			};
 		}
 
 	}
@@ -751,21 +746,44 @@ int __io_putchar(int ch) {
 }
 
 /**
- * @brief Immediately stops all motors and the viewing light, latches the
- *        fault state, and signals the fault condition. Safe to call from
- *        ISR context. Idempotent — safe to call even if already faulted.
+ * @brief  Latches the leak-fault state and shuts down non-essential
+ *         peripherals: stops motors' PWM outputs are left running at their
+ *         last duty cycle (see note below), stops the viewing light PWM,
+ *         stops the battery/thermistor ADC+DMA sampling, and disables the
+ *         TIM1/TIM8 break interrupts.
+ *
+ * @note   Only ever called from the main loop (never from ISR context) —
+ *         HAL_TIMEx_BreakCallback() only sets system_state_t; this function
+ *         does the actual (non-ISR-safe) shutdown work.
+ *
+ * @note   Idempotent via the emergency_shutdown_done flag: safe to call
+ *         repeatedly (e.g. every main loop iteration while faulted) without
+ *         re-running the shutdown sequence.
+ *
+ * @note   Disabling TIM_IT_BREAK here means a second leak event will NOT
+ *         generate another interrupt while faulted. Any future fault-clear
+ *         / reset routine MUST re-enable (and clear the pending flag on)
+ *         TIM_IT_BREAK for htim1 and htim8, and must reset
+ *         emergency_shutdown_done = false, or the system will silently stop
+ *         detecting leaks after a reset.
+ *
+ * @retval None
  */
 void emergency_shutdown(void) {
-	if (system_state_t == SYS_STATE_LEAK_FAULT) {
-		return; // system state is already fault.
+
+	if (emergency_shutdown_done) {
+		return;
 	}
+	emergency_shutdown_done = true;
+
 	system_state_t = SYS_STATE_LEAK_FAULT;
-
+	__HAL_TIM_DISABLE_IT(&htim1, TIM_IT_BREAK); // stop new break IRQs while faulted; must be re-enabled + cleared by any future reset routine
 	__HAL_TIM_DISABLE_IT(&htim8, TIM_IT_BREAK);
-	__HAL_TIM_DISABLE_IT(&htim1, TIM_IT_BREAK);
-	HAL_TIM_PWM_Stop(&htim12, TIM_CHANNEL_2);
 
-// do not put any blocking calls in the function, use the SYS_STATE_t.
+	HAL_TIM_PWM_Stop(&htim12, TIM_CHANNEL_2); // stop viewing light PWM
+	HAL_ADC_Stop_DMA(&hadc1);   // stop battery/thermistor ADC sampling
+	HAL_TIM_Base_Stop(&htim2);  // stop the ADC trigger timer
+
 }
 
 /**
@@ -781,8 +799,10 @@ void emergency_shutdown(void) {
  */
 void HAL_TIMEx_BreakCallback(TIM_HandleTypeDef *htim) {
 	if (htim->Instance == TIM1 || htim->Instance == TIM8) {
-		emergency_shutdown();
+		system_state_t = SYS_STATE_LEAK_FAULT;
 	}
+	// do not anything in this function, especially blocking calls.
+	// Use the emergency_shutdown function.
 }
 
 /**
@@ -822,7 +842,7 @@ float get_battery_voltage(void) {
 	float raw_avg = util_average_channel(adc1_raw_buffer, ADC1_NUM_CHANNELS,
 	ADC1_SAMPLES_PER_CHANNEL, CH_BATTERY);
 	float ratio = (BATTERY_MONITOR_R1 + BATTERY_MONITOR_R2) / BATTERY_MONITOR_R2;
-	return ratio * (raw_avg / 4095.0f) * 3.3f;;
+	return ratio * (raw_avg / 4095.0f) * 3.3f;
 }
 
 /**

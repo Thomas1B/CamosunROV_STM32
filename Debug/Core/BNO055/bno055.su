@@ -8,7 +8,7 @@
 ../Core/BNO055/bno055.c:117:6:bno055_disableExternalCrystal	8	static
 ../Core/BNO055/bno055.c:128:6:bno055_reset	8	static
 ../Core/BNO055/bno055.c:138:8:bno055_getTemp	16	static
-../Core/BNO055/bno055.c:149:6:bno055_setup	16	static
+../Core/BNO055/bno055.c:149:9:bno055_setup	16	static
 ../Core/BNO055/bno055.c:172:9:bno055_getSWRevision	16	static
 ../Core/BNO055/bno055.c:185:9:bno055_getBootloaderRevision	16	static
 ../Core/BNO055/bno055.c:204:9:bno055_getSystemStatus	16	static
