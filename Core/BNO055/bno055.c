@@ -8,8 +8,6 @@ uint16_t eulerScale = 16;
 uint16_t magScale = 16;
 uint16_t quaScale = (1 << 14);    // 2^14
 
-
-
 /**
  * @brief  Sets the current register page of the BNO055.
  * The BNO055 has two register pages (0 and 1) that contain different sets of registers.
@@ -152,6 +150,7 @@ uint8_t bno055_setup() {
 	uint8_t id = 0;
 	bno055_readData(BNO055_CHIP_ID, &id, 1);
 	if (id != BNO055_ID) {
+		printf("Can't find BNO055, id: 0x%02x.\r\n", id);
 		return 0;
 	}
 	bno055_setPage(0);

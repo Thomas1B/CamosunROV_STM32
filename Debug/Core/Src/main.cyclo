@@ -15,9 +15,9 @@
 ../Core/Src/main.c:699:13:MX_DMA_Init	1
 ../Core/Src/main.c:716:13:MX_GPIO_Init	1
 ../Core/Src/main.c:743:5:__io_putchar	1
-../Core/Src/main.c:753:6:emergency_shutdown	1
-../Core/Src/main.c:782:6:HAL_TIMEx_BreakCallback	3
-../Core/Src/main.c:793:6:set_viewing_light_lvl	3
-../Core/Src/main.c:821:7:get_battery_voltage	1
-../Core/Src/main.c:836:7:get_internal_temperature	1
-../Core/Src/main.c:849:6:Error_Handler	1
+../Core/Src/main.c:772:6:emergency_shutdown	2
+../Core/Src/main.c:800:6:HAL_TIMEx_BreakCallback	3
+../Core/Src/main.c:813:6:set_viewing_light_lvl	3
+../Core/Src/main.c:841:7:get_battery_voltage	1
+../Core/Src/main.c:856:7:get_internal_temperature	1
+../Core/Src/main.c:869:6:Error_Handler	1
