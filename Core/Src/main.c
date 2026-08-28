@@ -186,7 +186,7 @@ int main(void) {
 	__HAL_TIM_ENABLE_IT(&htim1, TIM_IT_BREAK); // <-- enable the break interrupt
 	__HAL_TIM_ENABLE_IT(&htim8, TIM_IT_BREAK);
 
-	if (system_state_t != SYS_STATE_LEAK_FAULT) {
+	if (system_state_t == SYS_STATE_RUN) {
 		// Flashing green led once to notify boot up starting
 		HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_SET);
 		HAL_Delay(250);
@@ -231,7 +231,11 @@ int main(void) {
 			HAL_GPIO_TogglePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin);
 			HAL_Delay(50);
 		}
+	} else if (system_state_t == SYS_STATE_LEAK_FAULT) {
+		while(1); // do nothing
 	}
+
+	// TODO: add if statements to catch if sensor not working. no need to use while loops, just notify leds.
 
 	uint32_t lastPrint = 0;
 
@@ -247,7 +251,8 @@ int main(void) {
 		if (system_state_t == SYS_STATE_LEAK_FAULT) {
 			emergency_shutdown();
 			// TODO: send message to pi
-			while(1); // TODO: wait for reply to attempt restart.
+//			while (1)
+//				; // TODO: wait for reply to attempt restart then break from loop.
 		}
 
 		if (HAL_GetTick() - lastPrint > 1500) {
@@ -787,6 +792,7 @@ void emergency_shutdown(void) {
 	// TODO: decide to whether to shutodwn I2C communication...
 }
 
+
 /**
  * @brief  Break interrupt callback for advanced timers (TIM1/TIM8).
  *
@@ -805,11 +811,11 @@ void HAL_TIMEx_BreakCallback(TIM_HandleTypeDef *htim) {
 		__HAL_TIM_DISABLE_IT(&htim8, TIM_IT_BREAK);
 	}
 
-	if (htim->Instance == TIM1) {			// for debugging only
-		printf("BREAK: TIM1\r\n");
-	} else if (htim->Instance == TIM8) {
-		printf("BREAK: TIM8\r\n");
-	}
+//	if (htim->Instance == TIM1) {			// for debugging only
+//		printf("BREAK: TIM1\r\n");
+//	} else if (htim->Instance == TIM8) {
+//		printf("BREAK: TIM8\r\n");
+//	}
 	// do not anything in this function, especially blocking calls.
 	// Use the emergency_shutdown function.
 }
