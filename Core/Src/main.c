@@ -246,11 +246,15 @@ int main(void) {
 
 		if (system_state_t == SYS_STATE_LEAK_FAULT) {
 			emergency_shutdown();
+			// TODO: send message to pi
+			while(1); // TODO: wait for reply to attempt restart.
 		}
 
 		if (HAL_GetTick() - lastPrint > 1500) {
 			battery_voltage = get_battery_voltage();
 			internal_temperature = get_internal_temperature();
+
+			MS5837_Read(&bar30);
 			depth = MS5837_GetDepth(&bar30);
 
 			imu_vec = bno055_getVectorAccelerometer();
@@ -775,10 +779,7 @@ void emergency_shutdown(void) {
 		return;
 	}
 	emergency_shutdown_done = true;
-
 	system_state_t = SYS_STATE_LEAK_FAULT;
-	__HAL_TIM_DISABLE_IT(&htim1, TIM_IT_BREAK); // stop new break IRQs while faulted; must be re-enabled + cleared by any future reset routine
-	__HAL_TIM_DISABLE_IT(&htim8, TIM_IT_BREAK);
 
 	HAL_TIM_PWM_Stop(&htim12, TIM_CHANNEL_2); // stop viewing light PWM
 	HAL_ADC_Stop_DMA(&hadc1);   // stop battery/thermistor ADC sampling
@@ -800,6 +801,14 @@ void emergency_shutdown(void) {
 void HAL_TIMEx_BreakCallback(TIM_HandleTypeDef *htim) {
 	if (htim->Instance == TIM1 || htim->Instance == TIM8) {
 		system_state_t = SYS_STATE_LEAK_FAULT;
+		__HAL_TIM_DISABLE_IT(&htim1, TIM_IT_BREAK); // stop new break IRQs while faulted; must be re-enabled + cleared by any future reset routine
+		__HAL_TIM_DISABLE_IT(&htim8, TIM_IT_BREAK);
+	}
+
+	if (htim->Instance == TIM1) {			// for debugging only
+		printf("BREAK: TIM1\r\n");
+	} else if (htim->Instance == TIM8) {
+		printf("BREAK: TIM8\r\n");
 	}
 	// do not anything in this function, especially blocking calls.
 	// Use the emergency_shutdown function.
