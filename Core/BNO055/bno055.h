@@ -281,7 +281,7 @@ void bno055_setOperationModeConfig();
 void bno055_setOperationModeNDOF();
 void bno055_enableExternalCrystal();
 void bno055_disableExternalCrystal();
-void bno055_setup();
+uint8_t bno055_setup();
 
 int8_t bno055_getTemp();
 
