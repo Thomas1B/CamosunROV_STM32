@@ -46,8 +46,8 @@ typedef enum {
 	SYS_STATE_RUN = 0,      // Normal operation; no faults latched
 	SYS_STATE_LEAK_FAULT,   // Fault latched: leak detected
 	SYS_STATE_IMU_FAULT,    // Fault latched: IMU failure or invalid data
-	SYS_STATE_DEPTH_FAULT, // Fault latched: depth sensor failure or out-of-range reading
-	SYS_STATE_TEMP_FAULT // Fault latched: temperature sensor failure or out-of-range reading
+	SYS_STATE_DEPTH_FAULT, 	// Fault latched: depth sensor failure or out-of-range reading
+	SYS_STATE_TEMP_FAULT 	// Fault latched: temperature sensor failure or out-of-range reading
 } SystemState_t;
 
 /**
