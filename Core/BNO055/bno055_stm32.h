@@ -40,14 +40,15 @@ void bno055_writeData(uint8_t reg, uint8_t data) {
     return;
   }
 
+  printf("Called from BNO055_STM32.h\r\n");
   if (status == HAL_ERROR) {
-    printf("HAL_I2C_Master_Transmit HAL_ERROR\r\n");
+    printf("HAL_I2C_Master_Transmit Status: HAL_ERROR\r\n");
   } else if (status == HAL_TIMEOUT) {
-    printf("HAL_I2C_Master_Transmit HAL_TIMEOUT\r\n");
+    printf("HAL_I2C_Master_Transmit Status: HAL_TIMEOUT\r\n");
   } else if (status == HAL_BUSY) {
-    printf("HAL_I2C_Master_Transmit HAL_BUSY\r\n");
+    printf("HAL_I2C_Master_Transmit Status: HAL_BUSY\r\n");
   } else {
-    printf("Unknown status data %d", status);
+    printf("Unknown status data %d \r\n", status);
   }
 
   uint32_t error = HAL_I2C_GetError(_bno055_i2c_port);
@@ -71,7 +72,7 @@ void bno055_writeData(uint8_t reg, uint8_t data) {
   if (state == HAL_I2C_STATE_RESET) {
     printf("HAL_I2C_STATE_RESET\r\n");
   } else if (state == HAL_I2C_STATE_READY) {
-    printf("HAL_I2C_STATE_RESET\r\n");
+    printf("HAL_I2C_STATE_READY\r\n");
   } else if (state == HAL_I2C_STATE_BUSY) {
     printf("HAL_I2C_STATE_BUSY\r\n");
   } else if (state == HAL_I2C_STATE_BUSY_TX) {
