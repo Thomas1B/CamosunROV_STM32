@@ -43,12 +43,12 @@
  * condition clears.
  */
 typedef enum {
-	SYS_STATE_RUN = 0,        // Normal operation; no faults latched
-	SYS_STATE_LEAK_FAULT = (1 << 0), // Fault latched: leak detected
-	SYS_STATE_IMU_FAULT = (1 << 1), // Fault latched: IMU failure or invalid data
-	SYS_STATE_DEPTH_FAULT = (1 << 2), // Fault latched: depth sensor failure or out-of-range reading
-	SYS_STATE_TEMP_FAULT = (1 << 3), // Fault latched: temperature sensor failure or out-of-range reading
-	SYS_STATE_UART_FAULT = (1 << 4), // Fault latched: UART communication failure
+	SYS_STATE_FAULT_NONE  = 0,        // Normal operation; no faults latched
+	SYS_STATE_FAULT_LEAK  = (1 << 0), // Fault latched: leak detected
+	SYS_STATE_FAULT_IMU   = (1 << 1), // Fault latched: IMU failure or invalid data
+	SYS_STATE_FAULT_DEPTH = (1 << 2), // Fault latched: depth sensor failure or out-of-range reading
+	SYS_STATE_FAULT_TEMP  = (1 << 3), // Fault latched: temperature sensor failure or out-of-range reading
+	SYS_STATE_FAULT_UART  = (1 << 4), // Fault latched: UART communication failure
 } SystemState_t;
 
 /**
@@ -100,7 +100,7 @@ UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 
-volatile SystemState_t system_state_t = SYS_STATE_RUN; // current system state // RUN or FAULT
+volatile SystemState_t system_state_t = SYS_STATE_FAULT_NONE; // current system state // RUN or FAULT
 volatile uint16_t adc1_raw_buffer[ADC1_NUM_CHANNELS * ADC1_SAMPLES_PER_CHANNEL]; // array to store ADC1 raw data. / data[CH0, CH1, CH0, CH1, ..., CH0, CH1]
 
 bno055_vector_t imu_vec; // instance of the BNO055 sensor
@@ -136,7 +136,7 @@ void emergency_shutdown(void);
 void set_viewing_light_lvl(uint8_t percent);
 float get_battery_voltage(void);
 float get_internal_temperature(void);
-static bool has_fault(uint32_t value, SystemState_t fault_code);
+void bno055_check_connection(void);
 
 /* USER CODE END PFP */
 
@@ -188,7 +188,7 @@ int main(void) {
 	__HAL_TIM_ENABLE_IT(&htim1, TIM_IT_BREAK); // <-- enable the break interrupt
 	__HAL_TIM_ENABLE_IT(&htim8, TIM_IT_BREAK);
 
-	if (system_state_t == SYS_STATE_LEAK_FAULT) {
+	if (system_state_t == SYS_STATE_FAULT_LEAK) {
 		HAL_GPIO_WritePin(RED_LED_GPIO_Port, RED_LED_Pin, GPIO_PIN_SET);
 		emergency_shutdown();
 		while (1)
@@ -209,13 +209,13 @@ int main(void) {
 			bno055_setOperationMode(BNO055_OPERATION_MODE_NDOF);
 			bno055_setCalibrationData(savedCalData);
 		} else {
-			system_state_t += SYS_STATE_IMU_FAULT;
+			system_state_t += SYS_STATE_FAULT_IMU;
 		}
 
 		// Setting bar30 pressure sensor
 		MS5837_SetI2C(&bar30, &hi2c1); // // Assign the I2C handle to the Bar30
 		if (!MS5837_Init(&bar30)) {
-			system_state_t += SYS_STATE_DEPTH_FAULT;
+			system_state_t += SYS_STATE_FAULT_DEPTH;
 		}
 		// These dont need don't need in an else statement. They just write to vars, not the device. (BNO055 is different)
 		MS5837_SetSurfaceReference(&bar30, SURFACE_PRESSURE);
@@ -249,7 +249,7 @@ int main(void) {
 		}
 	}
 
-	if (has_fault(system_state_t, SYS_STATE_DEPTH_FAULT)) {
+	if (has_fault(system_state_t, SYS_STATE_FAULT_DEPTH)) {
 		HAL_GPIO_WritePin(YELLOW_LED_GPIO_Port, YELLOW_LED_Pin, GPIO_PIN_SET);
 	}
 
@@ -266,7 +266,7 @@ int main(void) {
 
 		/* USER CODE BEGIN 3 */
 
-		if (system_state_t == SYS_STATE_LEAK_FAULT) {
+		if (system_state_t == SYS_STATE_FAULT_LEAK) {
 			emergency_shutdown();
 			// TODO: send message to pi
 //			while (1)
@@ -283,13 +283,13 @@ int main(void) {
 			imu_vec = bno055_getVectorAccelerometer();
 			printf("Accel: X=%0.2f m/s^2, Y=%0.2f m/s^2, Z=%0.2f m/s^2\r\n",
 					imu_vec.x, imu_vec.y, imu_vec.z);
-			imu_vec = bno055_getVectorGyroscope();
-			printf("Gyro: X=%0.2f dps, Y=%0.2f dps, Z=%0.2f dps\r\n", imu_vec.x,
-					imu_vec.y, imu_vec.z);
-			imu_vec = bno055_getVectorEuler();
-			printf("Euler: Heading=%0.2f, Roll=%0.2f, Pitch=%0.2f\r\n",
-					imu_vec.x, imu_vec.y, imu_vec.z);
-			printf("IMU Status: %d \r\n", bno055_getSystemStatus());
+//			imu_vec = bno055_getVectorGyroscope();
+//			printf("Gyro: X=%0.2f dps, Y=%0.2f dps, Z=%0.2f dps\r\n", imu_vec.x,
+//					imu_vec.y, imu_vec.z);
+
+//			imu_vec = bno055_getVectorEuler();
+//			printf("Euler: Heading=%0.2f, Roll=%0.2f, Pitch=%0.2f\r\n",
+//					imu_vec.x, imu_vec.y, imu_vec.z);
 
 			printf("Battery Voltage = %0.3f, ", battery_voltage);
 			printf("Internal Temperature = %0.3f\n", internal_temperature);
@@ -803,7 +803,7 @@ void emergency_shutdown(void) {
 		return;
 	}
 	emergency_shutdown_done = true;
-	system_state_t = SYS_STATE_LEAK_FAULT;
+	system_state_t = SYS_STATE_FAULT_LEAK;
 
 	HAL_TIM_PWM_Stop(&htim12, TIM_CHANNEL_2); // stop viewing light PWM
 	HAL_ADC_Stop_DMA(&hadc1);   // stop battery/thermistor ADC sampling
@@ -826,7 +826,7 @@ void emergency_shutdown(void) {
  */
 void HAL_TIMEx_BreakCallback(TIM_HandleTypeDef *htim) {
 	if (htim->Instance == TIM1 || htim->Instance == TIM8) {
-		system_state_t = SYS_STATE_LEAK_FAULT;
+		system_state_t = SYS_STATE_FAULT_LEAK;
 		__HAL_TIM_DISABLE_IT(&htim1, TIM_IT_BREAK); // stop new break IRQs while faulted; must be re-enabled + cleared by any future reset routine
 		__HAL_TIM_DISABLE_IT(&htim8, TIM_IT_BREAK);
 	}
@@ -895,9 +895,6 @@ float get_internal_temperature(void) {
 	return therm_get_temperature(R);
 }
 
-static bool has_fault(uint32_t value, SystemState_t fault_code) {
-	return (value & fault_code) != 0;
-}
 
 /* USER CODE END 4 */
 
