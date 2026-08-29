@@ -9,6 +9,8 @@
  */
 
 #include "my_utils.h"
+#include <stdbool.h>
+
 
 /**
  * @brief  Maps a value from one range to another (like Arduino's map()).
@@ -66,4 +68,37 @@ float util_average_channel(const volatile uint16_t *buf,
 		sum += buf[(i * num_channels) + channel_index];
 	}
 	return (float) sum / (float) samples_per_channel;
+}
+
+/**
+ * @brief Checks whether at least one of the specified bit(s) is set in a bitmask.
+ *
+ * Performs a bitwise AND between current_fault and faults_to_check and returns
+ * true if the result is non-zero. If faults_to_check contains multiple bits,
+ * this returns true as long as ANY one of those bits is set — it does not
+ * require all of them to be set.
+ *
+ * @param current_fault   Bitmask of currently active fault/state flags.
+ * @param faults_to_check Single flag, or a mask of multiple flags, to test for.
+ * @return true if any bit in faults_to_check is also set in current_fault; false otherwise.
+ */
+bool has_fault(uint32_t current_fault, uint32_t faults_to_check) {
+    // Non-zero result means at least one matching bit was found.
+    return (current_fault & faults_to_check) != 0;
+}
+
+/**
+ * @brief Checks whether ALL of the specified faults are set in a bitmask.
+ *
+ * Performs a bitwise AND between current_fault and faults_to_check and
+ * returns true only if the result equals faults_to_check exactly, meaning
+ * every bit in faults_to_check is also present in current_fault.
+ *
+ * @param current_fault   Bitmask of currently active fault/state flags.
+ * @param faults_to_check Mask of flags that must ALL be present.
+ * @return true if every bit in faults_to_check is set in current_fault; false if any is missing.
+ */
+bool has_all_faults(uint32_t current_fault, uint32_t faults_to_check) {
+    // Result must match the mask exactly, all required bits must be set.
+    return (current_fault & faults_to_check) == faults_to_check;
 }
