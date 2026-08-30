@@ -11,7 +11,6 @@
 #include "my_utils.h"
 #include <stdbool.h>
 
-
 /**
  * @brief  Maps a value from one range to another (like Arduino's map()).
  * @param  x: The input value to map.
@@ -59,9 +58,8 @@ float util_adc_to_voltage(uint16_t val) {
  *          entries; `channel_index` must be < `num_channels`. No bounds
  *          checking is performed.
  */
-float util_average_channel(const volatile uint16_t *buf,
-		uint32_t num_channels, uint32_t samples_per_channel,
-		uint32_t channel_index) {
+float util_average_channel(const volatile uint16_t *buf, uint32_t num_channels,
+		uint32_t samples_per_channel, uint32_t channel_index) {
 
 	uint32_t sum = 0;
 	for (uint32_t i = 0; i < samples_per_channel; i++) {
@@ -83,8 +81,8 @@ float util_average_channel(const volatile uint16_t *buf,
  * @return true if any bit in faults_to_check is also set in current_fault; false otherwise.
  */
 bool has_fault(uint32_t current_fault, uint32_t faults_to_check) {
-    // Non-zero result means at least one matching bit was found.
-    return (current_fault & faults_to_check) != 0;
+	// Non-zero result means at least one matching bit was found.
+	return (current_fault & faults_to_check) != 0;
 }
 
 /**
@@ -99,6 +97,6 @@ bool has_fault(uint32_t current_fault, uint32_t faults_to_check) {
  * @return true if every bit in faults_to_check is set in current_fault; false if any is missing.
  */
 bool has_all_faults(uint32_t current_fault, uint32_t faults_to_check) {
-    // Result must match the mask exactly, all required bits must be set.
-    return (current_fault & faults_to_check) == faults_to_check;
+	// Result must match the mask exactly, all required bits must be set.
+	return (current_fault & faults_to_check) == faults_to_check;
 }
