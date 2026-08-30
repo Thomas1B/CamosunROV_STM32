@@ -43,12 +43,12 @@
  * condition clears.
  */
 typedef enum {
-	SYS_STATE_FAULT_NONE  = 0,        // Normal operation; no faults latched
-	SYS_STATE_FAULT_LEAK  = (1 << 0), // Fault latched: leak detected
-	SYS_STATE_FAULT_IMU   = (1 << 1), // Fault latched: IMU failure or invalid data
+	SYS_STATE_FAULT_NONE = 0,        // Normal operation; no faults latched
+	SYS_STATE_FAULT_LEAK = (1 << 0), // Fault latched: leak detected
+	SYS_STATE_FAULT_IMU = (1 << 1), // Fault latched: IMU failure or invalid data
 	SYS_STATE_FAULT_DEPTH = (1 << 2), // Fault latched: depth sensor failure or out-of-range reading
-	SYS_STATE_FAULT_TEMP  = (1 << 3), // Fault latched: temperature sensor failure or out-of-range reading
-	SYS_STATE_FAULT_UART  = (1 << 4), // Fault latched: UART communication failure
+	SYS_STATE_FAULT_TEMP = (1 << 3), // Fault latched: temperature sensor failure or out-of-range reading
+	SYS_STATE_FAULT_UART = (1 << 4), // Fault latched: UART communication failure
 } SystemState_t;
 
 /**
@@ -249,11 +249,11 @@ int main(void) {
 		}
 	}
 
-	if (has_fault(system_state_t, SYS_STATE_FAULT_DEPTH)) {
-		HAL_GPIO_WritePin(YELLOW_LED_GPIO_Port, YELLOW_LED_Pin, GPIO_PIN_SET);
-	}
+	// TODO: add if statements to catch if sensors not working. no need to use while loops, just notify leds.
+//	if (has_fault(system_state_t, SYS_STATE_FAULT_DEPTH)) {
+//		HAL_GPIO_WritePin(YELLOW_LED_GPIO_Port, YELLOW_LED_Pin, GPIO_PIN_SET);
+//	}
 
-	// TODO: add if statements to catch if sensor not working. no need to use while loops, just notify leds.
 
 	uint32_t lastPrint = 0;
 
@@ -276,24 +276,21 @@ int main(void) {
 		if (HAL_GetTick() - lastPrint > 1500) {
 			battery_voltage = get_battery_voltage();
 			internal_temperature = get_internal_temperature();
-
 			MS5837_Read(&bar30);
 			depth = MS5837_GetDepth(&bar30);
+			imu_vec = bno055_getVectorEuler();
 
-			imu_vec = bno055_getVectorAccelerometer();
-			printf("Accel: X=%0.2f m/s^2, Y=%0.2f m/s^2, Z=%0.2f m/s^2\r\n",
-					imu_vec.x, imu_vec.y, imu_vec.z);
-//			imu_vec = bno055_getVectorGyroscope();
+//			printf("Accel: X=%0.2f m/s^2, Y=%0.2f m/s^2, Z=%0.2f m/s^2\r\n",
+//					imu_vec.x, imu_vec.y, imu_vec.z);
 //			printf("Gyro: X=%0.2f dps, Y=%0.2f dps, Z=%0.2f dps\r\n", imu_vec.x,
 //					imu_vec.y, imu_vec.z);
 
-//			imu_vec = bno055_getVectorEuler();
 //			printf("Euler: Heading=%0.2f, Roll=%0.2f, Pitch=%0.2f\r\n",
 //					imu_vec.x, imu_vec.y, imu_vec.z);
 
-			printf("Battery Voltage = %0.3f, ", battery_voltage);
-			printf("Internal Temperature = %0.3f\n", internal_temperature);
-			printf("Depth = %0.2f \n", depth);
+//			printf("Battery Voltage = %0.3f, ", battery_voltage);
+//			printf("Internal Temperature = %0.3f\n", internal_temperature);
+//			printf("Depth = %0.2f \n", depth);
 
 			lastPrint = HAL_GetTick();
 		}
@@ -894,7 +891,6 @@ float get_internal_temperature(void) {
 	float R = therm_get_ntc_resistance(raw_avg);
 	return therm_get_temperature(R);
 }
-
 
 /* USER CODE END 4 */
 

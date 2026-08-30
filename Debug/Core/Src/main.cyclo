@@ -3,7 +3,7 @@
 ../Core/BNO055/bno055_stm32.h:26:6:bno055_delay	1
 ../Core/BNO055/bno055_stm32.h:34:6:bno055_writeData	23
 ../Core/BNO055/bno055_stm32.h:99:6:bno055_readData	1
-../Core/Src/main.c:152:5:main	8
+../Core/Src/main.c:152:5:main	9
 ../Core/Src/main.c:309:6:SystemClock_Config	4
 ../Core/Src/main.c:360:13:MX_ADC1_Init	4
 ../Core/Src/main.c:417:13:MX_I2C1_Init	2

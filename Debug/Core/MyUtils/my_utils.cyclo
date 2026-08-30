@@ -1,5 +1,5 @@
-../Core/MyUtils/my_utils.c:27:7:util_map	1
-../Core/MyUtils/my_utils.c:37:7:util_adc_to_voltage	1
-../Core/MyUtils/my_utils.c:62:7:util_average_channel	2
-../Core/MyUtils/my_utils.c:85:6:has_fault	1
-../Core/MyUtils/my_utils.c:101:6:has_all_faults	1
+../Core/MyUtils/my_utils.c:26:7:util_map	1
+../Core/MyUtils/my_utils.c:36:7:util_adc_to_voltage	1
+../Core/MyUtils/my_utils.c:61:7:util_average_channel	2
+../Core/MyUtils/my_utils.c:83:6:has_fault	1
+../Core/MyUtils/my_utils.c:99:6:has_all_faults	1
