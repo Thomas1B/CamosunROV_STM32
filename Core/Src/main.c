@@ -796,6 +796,8 @@ int __io_putchar(int ch) {
  */
 void emergency_shutdown(void) {
 
+	// No need to stop Motor TIMs or PWMs. TIM1 and TIM8 BKIN handle that automatically.
+
 	if (emergency_shutdown_done) {
 		return;
 	}
@@ -807,6 +809,7 @@ void emergency_shutdown(void) {
 	HAL_TIM_Base_Stop(&htim2);  // stop the ADC trigger timer
 	HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_RESET);
 	HAL_GPIO_WritePin(RED_LED_GPIO_Port, RED_LED_Pin, GPIO_PIN_SET);
+
 	// TODO: decide to whether to shutodwn I2C communication...
 }
 
