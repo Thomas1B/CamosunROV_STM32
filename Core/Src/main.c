@@ -871,7 +871,7 @@ float get_battery_voltage(void) {
 	float raw_avg = util_average_channel(adc1_raw_buffer, ADC1_NUM_CHANNELS,
 	ADC1_SAMPLES_PER_CHANNEL, CH_BATTERY);
 	float ratio = (BATTERY_MONITOR_R1 + BATTERY_MONITOR_R2) / BATTERY_MONITOR_R2;
-	return ratio * (raw_avg / 4095.0f) * 3.3f;
+	return  ratio * (raw_avg / 4095.0f) * 3.3f;
 }
 
 /**
