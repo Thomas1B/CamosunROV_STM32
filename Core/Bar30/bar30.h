@@ -5,7 +5,7 @@
  *      Author: Thomas Bourgeois
  *
  *  Original Code is from https://github.com/bluerobotics/BlueRobotics_MS5837_Library/tree/master
- *  Claude AI was used to convert the code to work with STM32f446.
+ *  Claude AI was used to convert the code to work with STM32f446. Some changes were made.
  */
 
 #ifndef BAR30_BAR30_H_

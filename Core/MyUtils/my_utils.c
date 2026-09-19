@@ -1,8 +1,7 @@
 /*
  * my_utils.c
  *
- *  Created on: Jul 17, 2026
- *      Author: Thomas Bourgeois
+ *    Author: Thomas Bourgeois
  *
  *
  * Helper Functions for the STM32F4 project, including mapping values and converting ADC readings to voltages.

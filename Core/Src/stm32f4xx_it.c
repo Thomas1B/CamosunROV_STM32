@@ -58,7 +58,6 @@
 extern DMA_HandleTypeDef hdma_adc1;
 extern TIM_HandleTypeDef htim1;
 extern TIM_HandleTypeDef htim8;
-extern TIM_HandleTypeDef htim12;
 /* USER CODE BEGIN EV */
 
 /* USER CODE END EV */
@@ -224,7 +223,6 @@ void TIM8_BRK_TIM12_IRQHandler(void)
 
   /* USER CODE END TIM8_BRK_TIM12_IRQn 0 */
   HAL_TIM_IRQHandler(&htim8);
-  HAL_TIM_IRQHandler(&htim12);
   /* USER CODE BEGIN TIM8_BRK_TIM12_IRQn 1 */
 
   /* USER CODE END TIM8_BRK_TIM12_IRQn 1 */

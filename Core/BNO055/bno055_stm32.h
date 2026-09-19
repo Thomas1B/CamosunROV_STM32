@@ -1,3 +1,13 @@
+/*
+ * bno055_stm32.h
+ *
+ *  Created on: Jul 27, 2026
+ *      Author: Thomas Bourgeois
+ *
+ *  Original Code is from https://github.com/arduino-libraries/BNO055
+ *  Claude AI was used to convert the code to work with STM32f446. Some changes were made.
+ */
+
 #ifndef BNO055_STM32_H_
 #define BNO055_STM32_H_
 
