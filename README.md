@@ -19,7 +19,6 @@ It receives commands from the Raspberry Pi to control the ROV's motors and senso
 - [ ] Setup UART to Pi
 - [ ] Finish Emergency Shutdown Function
 - [ ] Restart function (restarts PWM generation, ADC reads, etc)
-- [ ] Design PCB
 <hr>
 
 ## Features
