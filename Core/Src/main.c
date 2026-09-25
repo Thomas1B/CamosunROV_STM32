@@ -76,6 +76,12 @@ typedef enum {
 #define BATTERY_MONITOR_R1 100000.0f // R1 (100K) of voltage divider for battery monitor / MUST BE DEFINED AS FLOATS.
 #define BATTERY_MONITOR_R2 18000.0f // R2 (18K) of voltage divider for battery monitor / MUST BE DEFINED AS FLOATS.
 
+/* UART link to the Pi */
+#define CMD_TIMEOUT_MS   150U  // no valid command for this long -> stop thrusters (~7 missed frames at 50 Hz)
+#define TELEM_PERIOD_MS  20U   // read sensors + send telemetry every 20 ms (50 Hz)
+#define DEBUG_PRINT_MS   1500U // SWO debug printf period (same as before)
+
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -117,6 +123,24 @@ float water_temperature; // var to store water temperature
 float depth; // var to store depth
 
 static bool emergency_shutdown_done = false;
+
+/* UART link to the Pi */
+static cmd_data_t latestCmd;               // newest valid command; written in UART ISR, copied in main with IRQs off
+static volatile uint8_t cmdReady = 0;      // 1 = latestCmd holds a command main hasn't applied yet
+static volatile uint32_t lastCmdTick = 0;  // HAL tick of the last valid command
+static uint8_t failsafeActive = 1;         // 1 = thrusters stopped by the command timeout
+static uint8_t linkEstablished = 0;        // 1 = at least one valid command received since boot
+
+/*
+ * Faults reported to the Pi. Kept separately from system_state_t because
+ * emergency_shutdown() sets system_state_t = SYS_STATE_FAULT_LEAK, which
+ * would erase any IMU/DEPTH/TEMP flags set at boot. Every loop merges
+ * system_state_t into this, so nothing is lost. Only touched from the main
+ * loop, so no interrupt race. A future fault-reset routine must clear this
+ * too.
+ */
+static uint8_t reportedFaults = SYS_STATE_FAULT_NONE;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -136,6 +160,14 @@ void emergency_shutdown(void);
 float get_battery_voltage(void);
 float get_internal_temperature(void);
 void bno055_check_connection(void);
+
+static uint16_t to_u16_x10(float v);
+static int16_t to_i16_x10(float v);
+static void apply_command(const cmd_data_t *cmd);
+static void apply_failsafe(void);
+static void read_sensors(void);
+static void send_telemetry(void);
+
 
 /* USER CODE END PFP */
 
@@ -251,7 +283,14 @@ int main(void)
 //		HAL_GPIO_WritePin(YELLOW_LED_GPIO_Port, YELLOW_LED_Pin, GPIO_PIN_SET);
 //	}
 
-	uint32_t lastPrint = 0;
+	/* ---- UART link to the Pi start-up, runs once ---- */
+	reportedFaults = (uint8_t) system_state_t; // keep the boot-time sensor faults
+	proto_start_rx(&huart4);                   // start listening for commands
+	uint32_t lastTelemTick = HAL_GetTick();
+	cmd_data_t lastAppliedCmd = { 0 };       // newest command applied, kept for the debug print
+
+
+	uint32_t Debug_lastPrint = 0;
 
   /* USER CODE END 2 */
 
@@ -262,20 +301,50 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 
-		if (system_state_t == SYS_STATE_FAULT_LEAK) {
-			emergency_shutdown();
-			// TODO: send message to pi
-//			while (1)
-//				; // TODO: wait for reply to attempt restart then break from loop.
+		/* ---- 1. Faults ------------------------------------------------ */
+		// Merge in anything the break ISR (or boot code) has set.
+		reportedFaults |= (uint8_t) system_state_t;
+
+		if (reportedFaults & SYS_STATE_FAULT_LEAK) {
+			emergency_shutdown(); // idempotent: the shutdown sequence only runs once
+			// The Pi is told through telemetry (leak = 1, LEAK fault flag),
+			// which keeps being sent below.
 		}
 
-		if (HAL_GetTick() - lastPrint > 1500) {
-			battery_voltage = get_battery_voltage();
-			internal_temperature = get_internal_temperature();
-			MS5837_Read(&bar30);
-			depth = MS5837_GetDepth(&bar30);
-			imu_vec = bno055_getVectorEuler();
+		/* ---- 2. Commands from the Pi ---------------------------------- */
+		cmd_data_t cmd;
+		uint8_t haveCmd = 0;
 
+		__disable_irq(); // copy atomically so the UART ISR can't change it mid-copy
+		if (cmdReady) {
+			cmd = latestCmd;
+			cmdReady = 0;
+			haveCmd = 1;
+		}
+		uint32_t sinceCmd = HAL_GetTick() - lastCmdTick;
+		__enable_irq();
+
+		if (haveCmd) {
+			failsafeActive = 0;
+			linkEstablished = 1;
+			apply_command(&cmd);
+			lastAppliedCmd = cmd;
+		} else if ((sinceCmd > CMD_TIMEOUT_MS) && !failsafeActive) {
+			failsafeActive = 1;
+			apply_failsafe(); // link lost -> stop thrusters
+		}
+
+		proto_rx_keepalive(&huart4); // restarts reception if a re-arm ever failed
+
+		/* ---- 3. Sensors + telemetry, every 20 ms ----------------------- */
+		if ((HAL_GetTick() - lastTelemTick) >= TELEM_PERIOD_MS) {
+			lastTelemTick = HAL_GetTick();
+			read_sensors();
+			send_telemetry();
+		}
+
+		/* ---- 4. Debug print over SWO (uses the values read above) ------ */
+		if ((HAL_GetTick() - Debug_lastPrint) > DEBUG_PRINT_MS) {
 			printf("Euler: Heading=%0.2f, Roll=%0.2f, Pitch=%0.2f\r\n",
 					imu_vec.x, imu_vec.y, imu_vec.z);
 
@@ -283,10 +352,28 @@ int main(void)
 			printf("Internal Temperature = %0.3f\n", internal_temperature);
 			printf("Depth = %0.2f \n", depth);
 
-			lastPrint = HAL_GetTick();
+			if (!linkEstablished) {
+				printf("Pi cmd: none received yet\r\n");
+			} else {
+				printf("Pi cmd: M1=%d M2=%d M3=%d M4=%d M5=%d M6=%d, Tilt=%0.1f deg\r\n",
+						lastAppliedCmd.motor[0], lastAppliedCmd.motor[1],
+						lastAppliedCmd.motor[2], lastAppliedCmd.motor[3],
+						lastAppliedCmd.motor[4], lastAppliedCmd.motor[5],
+						lastAppliedCmd.tilt_dc / 10.0f);
+				printf("Pi link: last cmd %lu ms ago%s, faults=0x%02X\r\n",
+						(unsigned long) sinceCmd,
+						failsafeActive ? " [FAILSAFE: motors stopped]" : "",
+						reportedFaults);
+			}
+
+			Debug_lastPrint = HAL_GetTick();
 		}
 
 	}
+
+
+
+
   /* USER CODE END 3 */
 }
 
@@ -879,6 +966,179 @@ float get_internal_temperature(void) {
 	float R = therm_get_ntc_resistance(raw_avg);
 	return therm_get_temperature(R);
 }
+
+
+/**
+ * @brief Refreshes the sensor variables.
+ *
+ * A sensor whose fault is latched is skipped, so a missing/failed I2C device
+ * can't stall the loop with I2C timeouts every 20 ms.
+ */
+static void read_sensors(void) {
+	battery_voltage = get_battery_voltage();
+	internal_temperature = get_internal_temperature();
+
+	if (!(reportedFaults & SYS_STATE_FAULT_DEPTH)) {
+		MS5837_Read(&bar30);
+		depth = MS5837_GetDepth(&bar30);
+	}
+
+	// Water temperature sensor (separate device from the Bar30).
+	// Skipped if SYS_STATE_FAULT_TEMP is latched -- set that flag in your
+	// init code if this sensor fails to start.
+	if (!(reportedFaults & SYS_STATE_FAULT_TEMP)) {
+		// TODO: water_temperature = <your water temperature sensor read>;
+	}
+
+	if (!(reportedFaults & SYS_STATE_FAULT_IMU)) {
+		imu_vec = bno055_getVectorEuler();
+	}
+}
+
+
+/**
+ * @brief Converts a float to an unsigned x10 integer ("deci-units") for the
+ *        telemetry frame.
+ *
+ * Every telemetry value is sent as a whole number scaled by 10, so one
+ * decimal place survives without sending a float over UART. The Pi divides
+ * by 10.0 to get the real value back.
+ *
+ * Used for the unsigned fields: depth_dm, battery_dv, heading_dc.
+ *
+ * @note  No clamping. v must be 0.0 to 6553.5 to fit a uint16_t. Only for
+ *        values that are never negative -- adding +0.5 rounds the wrong way
+ *        for negative numbers (use to_i16_x10() for those).
+ *
+ * @param  v  Value in real units, e.g. 299.5 (m), 15.8 (V), 359.9 (deg).
+ * @return    v x 10, rounded, e.g. 299.5 -> 2995.
+ */
+static uint16_t to_u16_x10(float v) {
+	return (uint16_t) (v * 10.0f + 0.5f);
+}
+
+/**
+ * @brief Converts a float to a signed x10 integer ("deci-units") for the
+ *        telemetry frame.
+ *
+ * Same idea as to_u16_x10(), but for values that can be negative. Rounding
+ * must go AWAY from zero on both sides, so the 0.5 is added for positive
+ * values and subtracted for negative ones.
+ *
+ * Used for the signed fields: water_temp_dc, inside_temp_dc, roll_dc,
+ * pitch_dc.
+ *
+ * @note  No clamping. v must be -3276.8 to 3276.7 to fit an int16_t.
+ *
+ * @param  v  Value in real units, e.g. -5.2 (degC), -45.0 (deg).
+ * @return    v x 10, rounded, e.g. -5.2 -> -52.
+ */
+static int16_t to_i16_x10(float v) {
+	float s = v * 10.0f;
+	return (int16_t) ((s >= 0.0f) ? (s + 0.5f) : (s - 0.5f));
+}
+
+
+/**
+ * @brief Applies a command received from the Pi.
+ *
+ * motor[0..5] in the frame drive motor1()..motor6() from motors.h (those
+ * functions clamp their own input). Thrusters are skipped while a leak is
+ * latched: TIM1/TIM8 BKIN has already cut their PWM outputs in hardware.
+ */
+static void apply_command(const cmd_data_t *cmd) {
+	if (!(reportedFaults & SYS_STATE_FAULT_LEAK)) {
+		motor1(cmd->motor[0]);
+		motor2(cmd->motor[1]);
+		motor3(cmd->motor[2]);
+		motor4(cmd->motor[3]);
+		motor5(cmd->motor[4]);
+		motor6(cmd->motor[5]);
+	}
+
+	// TODO: camera tilt -- call your function from motors.c here with
+	//       cmd->tilt_dc (deci-degrees, e.g. -155 = -15.5 deg).
+}
+
+
+/**
+ * @brief Command timeout: stop all thrusters (camera tilt left where it is).
+ *
+ * Uses motorN(0) rather than motors_reinit(): motors_reinit() also re-enables
+ * MOE and the break interrupt, which would undo a leak shutdown.
+ *
+ * Latches SYS_STATE_FAULT_UART, but only if the link was up before -- not
+ * while waiting for the Pi to finish booting. Because it is latched, the Pi
+ * still sees it in telemetry once the link recovers.
+ */
+static void apply_failsafe(void) {
+	motor1(0);
+	motor2(0);
+	motor3(0);
+	motor4(0);
+	motor5(0);
+	motor6(0);
+
+	if (linkEstablished) {
+		reportedFaults |= SYS_STATE_FAULT_UART;
+	}
+}
+
+
+/**
+ * @brief Packs the current sensor values and sends one telemetry frame.
+ *
+ * leak is taken from the latched LEAK fault (the leak sensor drives
+ * TIM1/TIM8 BKIN, which is what sets that fault).
+ */
+static void send_telemetry(void) {
+	telem_data_t data;
+
+	data.depth_dm = to_u16_x10(depth);
+	data.water_temp_dc = to_i16_x10(water_temperature);
+	data.battery_dv = to_u16_x10(battery_voltage);
+	data.inside_temp_dc = to_i16_x10(internal_temperature);
+	data.heading_dc = to_u16_x10((float) imu_vec.x); // x = heading
+	data.roll_dc = to_i16_x10((float) imu_vec.y);    // y = roll
+	data.pitch_dc = to_i16_x10((float) imu_vec.z);   // z = pitch
+	// leak = 1 if the LEAK fault bit is set, otherwise 0
+	if (reportedFaults & SYS_STATE_FAULT_LEAK) {
+		data.leak = 1U;
+	} else {
+		data.leak = 0U;
+	}
+	data.fault_flags = reportedFaults;
+
+	proto_send_telem(&huart4, &data); // HAL_BUSY = previous frame still sending, skip this one
+}
+
+
+/**
+ * @brief Called by HAL when UART4 reception pauses (idle line) or the DMA
+ *        buffer fills. Hands the received bytes to the protocol parser.
+ */
+void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size) {
+	if (huart->Instance == UART4) {
+		cmd_data_t cmd;
+		if (proto_rx_event_handler(huart, Size, &cmd)) {
+			latestCmd = cmd;              // main loop copies it with IRQs off
+			lastCmdTick = HAL_GetTick();
+			cmdReady = 1;
+		}
+	}
+}
+
+
+/**
+ * @brief Called by HAL on a UART error (noise, framing, overrun). The frame
+ *        in progress is broken: drop it and restart reception.
+ */
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart) {
+	if (huart->Instance == UART4) {
+		proto_rx_error_handler(huart);
+	}
+}
+
 
 /* USER CODE END 4 */
 
