@@ -86,7 +86,7 @@ static void proto_unpack_cmd_frame(const uint8_t *frame, cmd_data_t *out) {
 /* =========================================================================
  * proto_frame_valid()
  *
- * Checks whether the CMD_FRAME_SIZE (10) bytes starting at `frame` form a
+ * Checks whether the CMD_FRAME_SIZE bytes starting at `frame` form a
  * valid command frame. Returns 1 if valid, 0 if not.
  *
  * Two checks, both must pass (&&):
@@ -108,9 +108,22 @@ static void proto_unpack_cmd_frame(const uint8_t *frame, cmd_data_t *out) {
  * frame body -- check 2 rejects it, since the checksum won't match there.
  * ========================================================================= */
 static uint8_t proto_frame_valid(const uint8_t *frame) {
-    return (frame[0] == PROTO_START_BYTE) &&
-           (proto_checksum8(&frame[1], CMD_FRAME_SIZE - 2) ==
-            frame[CMD_FRAME_SIZE - 1]);
+    /* Check 1: the first byte must be the START byte. */
+    if (frame[0] != PROTO_START_BYTE) {
+        return 0;   /* not a frame start, skip the checksum */
+    }
+
+    /* Check 2: recompute the checksum over the 8 body bytes
+     * (frame[1] to frame[8]: 6 motors + 2 tilt bytes). */
+    uint16_t body_len       = CMD_FRAME_SIZE - 2;          /* CMD_FRAME_SIZE - START - CHECKSUM*/
+    uint8_t  computed_sum   = proto_checksum8(&frame[1], body_len);
+    uint8_t  received_sum   = frame[CMD_FRAME_SIZE - 1];   /* frame[9] */
+
+    if (computed_sum != received_sum) {
+        return 0;   /* corrupted or false START */
+    }
+
+    return 1;   /* both checks passed */
 }
 
 /* ========================================================================= */
