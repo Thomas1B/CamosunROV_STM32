@@ -29,5 +29,6 @@ Core/MyUtils \
 Core/Src \
 Core/Startup \
 Core/Thermistor \
+Core/UART_DMA \
 Drivers/STM32F4xx_HAL_Driver/Src \
 
