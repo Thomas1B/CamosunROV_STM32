@@ -57,7 +57,17 @@
 static uint8_t dmaBuf[PROTO_RX_DMA_SIZE];
 static uint8_t txBuf[TELEM_FRAME_SIZE];
 
-/* ========================================================================= */
+/*
+ * Computes an 8-bit additive checksum: the sum of `len` bytes starting at
+ * `data`, modulo 256 (the uint8_t cast lets overflow wrap around).
+ *
+ *   data : pointer to the first byte to include
+ *   len  : number of bytes to add
+ *   returns the 8-bit sum
+ *
+ * Used for both command and telemetry frames, over the bytes between START
+ * and the checksum byte.
+ */
 uint8_t proto_checksum8(const uint8_t *data, uint16_t len) {
     uint8_t sum = 0;
     for (uint16_t i = 0; i < len; i++) {
@@ -66,12 +76,12 @@ uint8_t proto_checksum8(const uint8_t *data, uint16_t len) {
     return sum;
 }
 
-/* =========================================================================
+/*
  * Unpack one command frame (START and checksum already validated).
  * frame layout: [0]=START [1..6]=motor[0..5]
  *               [7..8]=cam tilt (i16, little-endian) [9]=checksum
  * No range clamping here: the motor/tilt control functions do their own.
- * ========================================================================= */
+ */
 static void proto_unpack_cmd_frame(const uint8_t *frame, cmd_data_t *out) {
     for (int i = 0; i < 6; i++) {
         /* Same 8 bits reinterpreted as signed: 0x9C -> -100 */
@@ -83,9 +93,7 @@ static void proto_unpack_cmd_frame(const uint8_t *frame, cmd_data_t *out) {
     out->tilt_dc = (int16_t)((uint16_t)frame[7] | ((uint16_t)frame[8] << 8));
 }
 
-/* =========================================================================
- * proto_frame_valid()
- *
+/*
  * Checks whether the CMD_FRAME_SIZE bytes starting at `frame` form a
  * valid command frame. Returns 1 if valid, 0 if not.
  *
@@ -102,7 +110,7 @@ static void proto_unpack_cmd_frame(const uint8_t *frame, cmd_data_t *out) {
  **
  * Note: A motor value of -86 is also 0xAA, so a false START can appear inside a
  * 		 frame body -- check 2 rejects it, since the checksum won't match there.
- * ========================================================================= */
+ */
 static uint8_t proto_frame_valid(const uint8_t *frame) {
     /* Check 1: the first byte must be the START byte. */
     if (frame[0] != PROTO_START_BYTE) {
@@ -122,7 +130,24 @@ static uint8_t proto_frame_valid(const uint8_t *frame) {
     return 1;   /* both checks passed */
 }
 
-/* ========================================================================= */
+/*
+ * Starts (or restarts) command reception on the UART, using DMA with IDLE
+ * line detection. Received bytes go into dmaBuf, and
+ * HAL_UARTEx_RxEventCallback fires when either:
+ *   - the line goes idle (the Pi stopped sending), or
+ *   - dmaBuf is full (PROTO_RX_DMA_SIZE bytes received).
+ *
+ * The half-transfer interrupt that HAL turns on by default is disabled
+ * here, so the callback does not also fire when dmaBuf is half full.
+ *
+ *   huart   : UART handle connected to the Pi
+ *   returns HAL_OK if reception started, or the HAL error/busy status
+ *           otherwise (in that case the HT interrupt is left untouched)
+ *
+ * Called once at startup, then again after every chunk
+ * (proto_rx_event_handler), after a UART error (proto_rx_error_handler),
+ * and by proto_rx_keepalive if reception has stopped.
+ */
 HAL_StatusTypeDef proto_start_rx(UART_HandleTypeDef *huart) {
     HAL_StatusTypeDef st = HAL_UARTEx_ReceiveToIdle_DMA(huart, dmaBuf,
                                                         PROTO_RX_DMA_SIZE);
@@ -135,7 +160,7 @@ HAL_StatusTypeDef proto_start_rx(UART_HandleTypeDef *huart) {
     return st;
 }
 
-/* =========================================================================
+/*
  * Each chunk is handled on its own. Only COMPLETE, checksum-valid frames
  * inside this chunk are accepted; any fragment (a frame cut short, or the
  * tail of a frame caught mid-way at power-up) is ignored and thrown away
@@ -171,12 +196,39 @@ uint8_t proto_rx_event_handler(UART_HandleTypeDef *huart, uint16_t size,
     return found;
 }
 
-/* ========================================================================= */
+/*
+ * Called when the UART reports a receive error (overrun, framing, noise or
+ * parity). HAL has already aborted the DMA transfer, so any bytes received
+ * in the broken chunk are discarded -- no attempt is made to salvage frames
+ * from it. Reception is simply re-armed so the next chunk starts clean.
+ * Any frame lost this way is expected to be replaced by the sender's next
+ * transmission.
+ */
 void proto_rx_error_handler(UART_HandleTypeDef *huart) {
     proto_start_rx(huart);   /* HAL has already aborted the old transfer */
 }
 
-/* ========================================================================= */
+
+/*
+ * Safety net for UART reception. Call periodically (e.g. from the main loop
+ * or a timer tick).
+ *
+ * Normally reception re-arms itself from the RX event and error handlers.
+ * If a restart there ever fails, reception would stop silently and never
+ * recover. This function detects that case: if both the UART and its RX DMA
+ * are idle, nothing is listening, so reception is restarted.
+ *
+ * Interrupts are briefly disabled while reading the two states so they form
+ * a consistent snapshot; otherwise a UART callback could fire between the
+ * reads and change one of them. The restart itself happens with interrupts
+ * enabled.
+ *
+ * Safe to call as often as needed: when reception is already running, it
+ * does nothing.
+ *
+ * Do not call with interrupts already disabled; __enable_irq() will turn
+ * them back on unconditionally.
+ */
 void proto_rx_keepalive(UART_HandleTypeDef *huart) {
     __disable_irq();
     uint8_t idle = (huart->RxState == HAL_UART_STATE_READY) &&
@@ -188,15 +240,46 @@ void proto_rx_keepalive(UART_HandleTypeDef *huart) {
     }
 }
 
-/* =========================================================================
- * Telemetry packing: little-endian,
- * low byte = value & 0xFF, high byte = (value >> 8) & 0xFF.
- * ========================================================================= */
+/*
+ * Write a 16-bit value into a byte buffer in little-endian order
+ * (low byte first). Works regardless of the CPU's own byte order or
+ * the buffer's alignment.
+ *
+ * dst  Where to write. Must have room for 2 bytes: dst[0] gets the
+ *      low byte, dst[1] gets the high byte.
+ * v    The 16-bit value to write.
+ */
 static void put_u16(uint8_t *dst, uint16_t v) {
     dst[0] = (uint8_t)(v & 0xFF);
     dst[1] = (uint8_t)((v >> 8) & 0xFF);
 }
 
+
+/*
+ * Pack telemetry data into a fixed-size frame ready to send over the UART.
+ *
+ * data  The telemetry values to send. Not modified.
+ * buf   Output buffer, TELEM_FRAME_SIZE bytes. Every byte is overwritten.
+ *
+ * Frame layout (all 16-bit fields little-endian):
+ *
+ *   Byte   Field            Unit
+ *   0      start byte       PROTO_START_BYTE
+ *   1-2    depth            decimetres
+ *   3-4    water temp       0.1 °C, signed
+ *   5-6    battery          0.1 V
+ *   7-8    inside temp      0.1 °C, signed
+ *   9-10   heading          0.1 degree
+ *   11-12  roll             0.1 degree, signed
+ *   13-14  pitch            0.1 degree, signed
+ *   15     leak             leak flag
+ *   16     fault flags      bit field
+ *   17     checksum         over bytes 1-16 (start byte not included)
+ *
+ * Signed fields are cast to uint16_t so their two's complement bit pattern
+ * is sent unchanged. The receiver must cast them back to int16_t to recover
+ * negative values.
+ */
 void proto_build_telem_frame(const telem_data_t *data,
                              uint8_t buf[TELEM_FRAME_SIZE]) {
     buf[0] = PROTO_START_BYTE;
@@ -212,7 +295,23 @@ void proto_build_telem_frame(const telem_data_t *data,
     buf[17] = proto_checksum8(&buf[1], TELEM_FRAME_SIZE - 2);
 }
 
-/* ========================================================================= */
+/*
+ * Build a telemetry frame and start sending it over the UART using DMA.
+ *
+ * huart  The UART to send on. Its TX interrupt must be enabled.
+ * data   The telemetry values to send. Copied into the frame immediately,
+ *        so the caller can reuse or change it as soon as this returns.
+ *
+ * Returns:
+ *   HAL_OK     Transmission started. It finishes in the background; this
+ *              function does not wait for it.
+ *   HAL_BUSY   The previous frame is still being sent. Nothing is sent and
+ *              this frame is dropped, not queued. Try again later.
+ *   Other      Error from HAL_UART_Transmit_DMA.
+ *
+ * The busy check also protects txBuf: the DMA reads from it while sending,
+ * so it must not be overwritten until the previous transfer is complete.
+ */
 HAL_StatusTypeDef proto_send_telem(UART_HandleTypeDef *huart,
                                    const telem_data_t *data) {
     /* gState returns to READY only after the UART4 interrupt reports
