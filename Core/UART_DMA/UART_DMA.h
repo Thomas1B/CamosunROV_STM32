@@ -86,8 +86,6 @@
 #include <stdint.h>
 #include "stm32f4xx_hal.h"   /* for UART_HandleTypeDef, HAL_StatusTypeDef */
 
-
-
 #define PROTO_START_BYTE   0xAA
 
 #define CMD_FRAME_SIZE     10   /* START + 6 motors + tilt(2) + checksum */
@@ -96,20 +94,20 @@
 #define PROTO_RX_DMA_SIZE  64   /* DMA chunk buffer; > several frames */
 
 typedef struct {
-    int8_t  motor[6];     /* -100..100 (%), one per thruster */
-    int16_t tilt_dc;      /* camera tilt x10, deci-degrees */
+	int8_t motor[6]; /* -100..100 (%), one per thruster */
+	int16_t tilt_dc; /* camera tilt x10, deci-degrees */
 } cmd_data_t;
 
 typedef struct {
-    uint16_t depth_dm;        /* depth x10, 0-3000 (0-300.0 m) */
-    int16_t  water_temp_dc;   /* water temperature x10, deci-degrees C */
-    uint16_t battery_dv;      /* battery voltage x10, deci-volts */
-    int16_t  inside_temp_dc;  /* enclosure temperature x10, deci-degrees C */
-    uint16_t heading_dc;      /* BNO055 heading x10, 0-3600 */
-    int16_t  roll_dc;         /* BNO055 roll x10, ~-900..900 */
-    int16_t  pitch_dc;        /* BNO055 pitch x10, ~-1800..1800 */
-    uint8_t  leak;            /* 0 = dry, 1 = leak detected right now */
-    uint8_t  fault_flags;     /* latched SystemState_t flags, OR'ed */
+	uint16_t depth_dm; /* depth x10, 0-3000 (0-300.0 m) */
+	int16_t water_temp_dc; /* water temperature x10, deci-degrees C */
+	uint16_t battery_dv; /* battery voltage x10, deci-volts */
+	int16_t inside_temp_dc; /* enclosure temperature x10, deci-degrees C */
+	uint16_t heading_dc; /* BNO055 heading x10, 0-3600 */
+	int16_t roll_dc; /* BNO055 roll x10, ~-900..900 */
+	int16_t pitch_dc; /* BNO055 pitch x10, ~-1800..1800 */
+	uint8_t leak; /* 0 = dry, 1 = leak detected right now */
+	uint8_t fault_flags; /* latched SystemState_t flags, OR'ed */
 } telem_data_t;
 
 /* Additive checksum: sum of `len` bytes at `data`, mod 256. */
@@ -128,9 +126,9 @@ HAL_StatusTypeDef proto_start_rx(UART_HandleTypeDef *huart);
  * Call from HAL_UARTEx_RxEventCallback(huart, Size) for this UART.
  * Parses the received chunk (complete frames only), then re-arms DMA.
  * Returns 1 if `out` now holds a valid decoded command, 0 otherwise.
-  */
+ */
 uint8_t proto_rx_event_handler(UART_HandleTypeDef *huart, uint16_t size,
-                               cmd_data_t *out);
+		cmd_data_t *out);
 
 /*
  * proto_rx_error_handler()
@@ -147,12 +145,12 @@ void proto_rx_error_handler(UART_HandleTypeDef *huart);
  * the RX interrupt returned HAL_BUSY because a telemetry transmit held
  * the UART handle's lock at that instant. Cheap, and does nothing while
  * reception is running normally.
-  */
+ */
 void proto_rx_keepalive(UART_HandleTypeDef *huart);
 
 /* Packs telemetry into a ready-to-send 18-byte frame. */
 void proto_build_telem_frame(const telem_data_t *data,
-                             uint8_t txBuf[TELEM_FRAME_SIZE]);
+		uint8_t txBuf[TELEM_FRAME_SIZE]);
 
 /*
  * proto_send_telem()
@@ -161,6 +159,6 @@ void proto_build_telem_frame(const telem_data_t *data,
  * frame is still going out.
  */
 HAL_StatusTypeDef proto_send_telem(UART_HandleTypeDef *huart,
-                                   const telem_data_t *data);
+		const telem_data_t *data);
 
 #endif /* UART_DMA_H */

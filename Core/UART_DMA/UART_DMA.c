@@ -43,7 +43,6 @@
  *      TX complete both depend on it).
  */
 
-
 #include "UART_DMA.h"
 
 /* =========================================================================
@@ -69,11 +68,11 @@ static uint8_t txBuf[TELEM_FRAME_SIZE];
  * and the checksum byte.
  */
 uint8_t proto_checksum8(const uint8_t *data, uint16_t len) {
-    uint8_t sum = 0;
-    for (uint16_t i = 0; i < len; i++) {
-        sum = (uint8_t)(sum + data[i]);
-    }
-    return sum;
+	uint8_t sum = 0;
+	for (uint16_t i = 0; i < len; i++) {
+		sum = (uint8_t) (sum + data[i]);
+	}
+	return sum;
 }
 
 /*
@@ -83,14 +82,14 @@ uint8_t proto_checksum8(const uint8_t *data, uint16_t len) {
  * No range clamping here: the motor/tilt control functions do their own.
  */
 static void proto_unpack_cmd_frame(const uint8_t *frame, cmd_data_t *out) {
-    for (int i = 0; i < 6; i++) {
-        /* Same 8 bits reinterpreted as signed: 0x9C -> -100 */
-        out->motor[i] = (int8_t)frame[1 + i];
-    }
+	for (int i = 0; i < 6; i++) {
+		/* Same 8 bits reinterpreted as signed: 0x9C -> -100 */
+		out->motor[i] = (int8_t) frame[1 + i];
+	}
 
-    /* Camera tilt: rebuild the 16-bit pattern (low | high << 8), then
-     * reinterpret it as signed. */
-    out->tilt_dc = (int16_t)((uint16_t)frame[7] | ((uint16_t)frame[8] << 8));
+	/* Camera tilt: rebuild the 16-bit pattern (low | high << 8), then
+	 * reinterpret it as signed. */
+	out->tilt_dc = (int16_t) ((uint16_t) frame[7] | ((uint16_t) frame[8] << 8));
 }
 
 /*
@@ -112,22 +111,22 @@ static void proto_unpack_cmd_frame(const uint8_t *frame, cmd_data_t *out) {
  * 		 frame body -- check 2 rejects it, since the checksum won't match there.
  */
 static uint8_t proto_frame_valid(const uint8_t *frame) {
-    /* Check 1: the first byte must be the START byte. */
-    if (frame[0] != PROTO_START_BYTE) {
-        return 0;   /* not a frame start, skip the checksum */
-    }
+	/* Check 1: the first byte must be the START byte. */
+	if (frame[0] != PROTO_START_BYTE) {
+		return 0; /* not a frame start, skip the checksum */
+	}
 
-    /* Check 2: recompute the checksum over the 8 body bytes
-     * (frame[1] to frame[8]: 6 motors + 2 tilt bytes). */
-    uint16_t body_len       = CMD_FRAME_SIZE - 2;          /* CMD_FRAME_SIZE - START - CHECKSUM*/
-    uint8_t  computed_sum   = proto_checksum8(&frame[1], body_len);
-    uint8_t  received_sum   = frame[CMD_FRAME_SIZE - 1];   /* frame[9] */
+	/* Check 2: recompute the checksum over the 8 body bytes
+	 * (frame[1] to frame[8]: 6 motors + 2 tilt bytes). */
+	uint16_t body_len = CMD_FRAME_SIZE - 2; /* CMD_FRAME_SIZE - START - CHECKSUM*/
+	uint8_t computed_sum = proto_checksum8(&frame[1], body_len);
+	uint8_t received_sum = frame[CMD_FRAME_SIZE - 1]; /* frame[9] */
 
-    if (computed_sum != received_sum) {
-        return 0;   /* corrupted or false START */
-    }
+	if (computed_sum != received_sum) {
+		return 0; /* corrupted or false START */
+	}
 
-    return 1;   /* both checks passed */
+	return 1; /* both checks passed */
 }
 
 /*
@@ -149,15 +148,15 @@ static uint8_t proto_frame_valid(const uint8_t *frame) {
  * and by proto_rx_keepalive if reception has stopped.
  */
 HAL_StatusTypeDef proto_start_rx(UART_HandleTypeDef *huart) {
-    HAL_StatusTypeDef st = HAL_UARTEx_ReceiveToIdle_DMA(huart, dmaBuf,
-                                                        PROTO_RX_DMA_SIZE);
-    if (st == HAL_OK) {
-        /* HAL enables the half-transfer interrupt by default, which would
-         * fire HAL_UARTEx_RxEventCallback at 32 bytes. We only want IDLE
-         * and buffer-full events. */
-        __HAL_DMA_DISABLE_IT(huart->hdmarx, DMA_IT_HT);
-    }
-    return st;
+	HAL_StatusTypeDef st = HAL_UARTEx_ReceiveToIdle_DMA(huart, dmaBuf,
+	PROTO_RX_DMA_SIZE);
+	if (st == HAL_OK) {
+		/* HAL enables the half-transfer interrupt by default, which would
+		 * fire HAL_UARTEx_RxEventCallback at 32 bytes. We only want IDLE
+		 * and buffer-full events. */
+		__HAL_DMA_DISABLE_IT(huart->hdmarx, DMA_IT_HT);
+	}
+	return st;
 }
 
 /*
@@ -167,33 +166,33 @@ HAL_StatusTypeDef proto_start_rx(UART_HandleTypeDef *huart) {
  * with the rest of the chunk. Nothing is carried over to the next chunk.
  * ========================================================================= */
 uint8_t proto_rx_event_handler(UART_HandleTypeDef *huart, uint16_t size,
-                               cmd_data_t *out) {
-    uint8_t found = 0;
+		cmd_data_t *out) {
+	uint8_t found = 0;
 
-    if (size > PROTO_RX_DMA_SIZE) {
-        size = PROTO_RX_DMA_SIZE;
-    }
+	if (size > PROTO_RX_DMA_SIZE) {
+		size = PROTO_RX_DMA_SIZE;
+	}
 
-    /* Scan for complete frames. On a match, jump past the whole frame; on a
-     * false START (e.g. motor value -86 = 0xAA) advance one byte, so a real
-     * frame right after it in the same chunk is still found. */
-    uint16_t i = 0;
-    while ((uint16_t)(i + CMD_FRAME_SIZE) <= size) {
-        if (proto_frame_valid(&dmaBuf[i])) {
-            proto_unpack_cmd_frame(&dmaBuf[i], out);   /* last valid one wins */
-            found = 1;
-            i += CMD_FRAME_SIZE;
-        } else {
-            i++;
-        }
-    }
+	/* Scan for complete frames. On a match, jump past the whole frame; on a
+	 * false START (e.g. motor value -86 = 0xAA) advance one byte, so a real
+	 * frame right after it in the same chunk is still found. */
+	uint16_t i = 0;
+	while ((uint16_t) (i + CMD_FRAME_SIZE) <= size) {
+		if (proto_frame_valid(&dmaBuf[i])) {
+			proto_unpack_cmd_frame(&dmaBuf[i], out); /* last valid one wins */
+			found = 1;
+			i += CMD_FRAME_SIZE;
+		} else {
+			i++;
+		}
+	}
 
-    /* Chunk fully processed (or discarded) -- re-arm for the next one.
-     * HAL has already set RxState back to READY before calling the
-     * callback, so restarting from here is allowed. */
-    proto_start_rx(huart);
+	/* Chunk fully processed (or discarded) -- re-arm for the next one.
+	 * HAL has already set RxState back to READY before calling the
+	 * callback, so restarting from here is allowed. */
+	proto_start_rx(huart);
 
-    return found;
+	return found;
 }
 
 /*
@@ -205,9 +204,8 @@ uint8_t proto_rx_event_handler(UART_HandleTypeDef *huart, uint16_t size,
  * transmission.
  */
 void proto_rx_error_handler(UART_HandleTypeDef *huart) {
-    proto_start_rx(huart);   /* HAL has already aborted the old transfer */
+	proto_start_rx(huart); /* HAL has already aborted the old transfer */
 }
-
 
 /*
  * Safety net for UART reception. Call periodically (e.g. from the main loop
@@ -230,14 +228,14 @@ void proto_rx_error_handler(UART_HandleTypeDef *huart) {
  * them back on unconditionally.
  */
 void proto_rx_keepalive(UART_HandleTypeDef *huart) {
-    __disable_irq();
-    uint8_t idle = (huart->RxState == HAL_UART_STATE_READY) &&
-                   (huart->hdmarx->State == HAL_DMA_STATE_READY);
-    __enable_irq();
+	__disable_irq();
+	uint8_t idle = (huart->RxState == HAL_UART_STATE_READY)
+			&& (huart->hdmarx->State == HAL_DMA_STATE_READY);
+	__enable_irq();
 
-    if (idle) {
-        proto_start_rx(huart);
-    }
+	if (idle) {
+		proto_start_rx(huart);
+	}
 }
 
 /*
@@ -250,10 +248,9 @@ void proto_rx_keepalive(UART_HandleTypeDef *huart) {
  * v    The 16-bit value to write.
  */
 static void put_u16(uint8_t *dst, uint16_t v) {
-    dst[0] = (uint8_t)(v & 0xFF);
-    dst[1] = (uint8_t)((v >> 8) & 0xFF);
+	dst[0] = (uint8_t) (v & 0xFF);
+	dst[1] = (uint8_t) ((v >> 8) & 0xFF);
 }
-
 
 /*
  * Pack telemetry data into a fixed-size frame ready to send over the UART.
@@ -281,18 +278,18 @@ static void put_u16(uint8_t *dst, uint16_t v) {
  * negative values.
  */
 void proto_build_telem_frame(const telem_data_t *data,
-                             uint8_t buf[TELEM_FRAME_SIZE]) {
-    buf[0] = PROTO_START_BYTE;
-    put_u16(&buf[1],  data->depth_dm);
-    put_u16(&buf[3],  (uint16_t)data->water_temp_dc);   /* two's complement bits */
-    put_u16(&buf[5],  data->battery_dv);
-    put_u16(&buf[7],  (uint16_t)data->inside_temp_dc);
-    put_u16(&buf[9],  data->heading_dc);
-    put_u16(&buf[11], (uint16_t)data->roll_dc);
-    put_u16(&buf[13], (uint16_t)data->pitch_dc);
-    buf[15] = data->leak;
-    buf[16] = data->fault_flags;
-    buf[17] = proto_checksum8(&buf[1], TELEM_FRAME_SIZE - 2);
+		uint8_t buf[TELEM_FRAME_SIZE]) {
+	buf[0] = PROTO_START_BYTE;
+	put_u16(&buf[1], data->depth_dm);
+	put_u16(&buf[3], (uint16_t) data->water_temp_dc); /* two's complement bits */
+	put_u16(&buf[5], data->battery_dv);
+	put_u16(&buf[7], (uint16_t) data->inside_temp_dc);
+	put_u16(&buf[9], data->heading_dc);
+	put_u16(&buf[11], (uint16_t) data->roll_dc);
+	put_u16(&buf[13], (uint16_t) data->pitch_dc);
+	buf[15] = data->leak;
+	buf[16] = data->fault_flags;
+	buf[17] = proto_checksum8(&buf[1], TELEM_FRAME_SIZE - 2);
 }
 
 /*
@@ -313,12 +310,12 @@ void proto_build_telem_frame(const telem_data_t *data,
  * so it must not be overwritten until the previous transfer is complete.
  */
 HAL_StatusTypeDef proto_send_telem(UART_HandleTypeDef *huart,
-                                   const telem_data_t *data) {
-    /* gState returns to READY only after the UART4 interrupt reports
-     * transmission complete -- another reason that IRQ must be enabled. */
-    if (huart->gState != HAL_UART_STATE_READY) {
-        return HAL_BUSY;
-    }
-    proto_build_telem_frame(data, txBuf);
-    return HAL_UART_Transmit_DMA(huart, txBuf, TELEM_FRAME_SIZE);
+		const telem_data_t *data) {
+	/* gState returns to READY only after the UART4 interrupt reports
+	 * transmission complete -- another reason that IRQ must be enabled. */
+	if (huart->gState != HAL_UART_STATE_READY) {
+		return HAL_BUSY;
+	}
+	proto_build_telem_frame(data, txBuf);
+	return HAL_UART_Transmit_DMA(huart, txBuf, TELEM_FRAME_SIZE);
 }
