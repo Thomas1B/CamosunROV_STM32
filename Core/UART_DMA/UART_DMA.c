@@ -99,13 +99,9 @@ static void proto_unpack_cmd_frame(const uint8_t *frame, cmd_data_t *out) {
  *        CMD_FRAME_SIZE - 2  -> 10 - START - CHECKSUM = 8 bytes
  *      and compared with frame[CMD_FRAME_SIZE - 1] (frame[9]), the checksum
  *      the Pi sent. A byte corrupted or lost in transit makes them differ.
- *
- * Example: aa 32 00 9c 1e 00 aa 65 ff fa
- *          START ok; 0x32+0x00+0x9C+0x1E+0x00+0xAA+0x65+0xFF = 762,
- *          762 mod 256 = 250 = 0xFA = frame[9]  -> valid, returns 1
- *
- * A motor value of -86 is also 0xAA, so a false START can appear inside a
- * frame body -- check 2 rejects it, since the checksum won't match there.
+ **
+ * Note: A motor value of -86 is also 0xAA, so a false START can appear inside a
+ * 		 frame body -- check 2 rejects it, since the checksum won't match there.
  * ========================================================================= */
 static uint8_t proto_frame_valid(const uint8_t *frame) {
     /* Check 1: the first byte must be the START byte. */
