@@ -28,6 +28,7 @@
 #include "thermistor.h"
 #include "bno055_stm32.h"
 #include "bar30.h"
+#include "UART_DMA.h"
 
 /* USER CODE END Includes */
 

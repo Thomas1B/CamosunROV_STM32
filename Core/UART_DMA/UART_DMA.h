@@ -80,8 +80,8 @@
  *    - Needs STM32CubeF4 firmware package v1.26.0 or newer (ReceiveToIdle API)
  */
 
-#ifndef UART_DMA_H
-#define UART_DMA_H
+#ifndef UART_DMA_UART_DMA_H_
+#define UART_DMA_UART_DMA_H_
 
 #include <stdint.h>
 #include "stm32f4xx_hal.h"   /* for UART_HandleTypeDef, HAL_StatusTypeDef */
@@ -161,4 +161,4 @@ void proto_build_telem_frame(const telem_data_t *data,
 HAL_StatusTypeDef proto_send_telem(UART_HandleTypeDef *huart,
 		const telem_data_t *data);
 
-#endif /* UART_DMA_H */
+#endif /* UART_DMA_UART_DMA_H_ */
