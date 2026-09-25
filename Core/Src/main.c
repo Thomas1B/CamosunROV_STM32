@@ -1094,7 +1094,7 @@ static void apply_failsafe(void) {
 static void send_telemetry(void) {
 	telem_data_t data;
 
-	data.depth_dm = to_u16_x10(depth);
+	data.depth_dm = to_i16_x10(depth);
 	data.water_temp_dc = to_i16_x10(water_temperature);
 	data.battery_dv = to_u16_x10(battery_voltage);
 	data.inside_temp_dc = to_i16_x10(internal_temperature);

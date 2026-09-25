@@ -280,7 +280,7 @@ static void put_u16(uint8_t *dst, uint16_t v) {
 void proto_build_telem_frame(const telem_data_t *data,
 		uint8_t buf[TELEM_FRAME_SIZE]) {
 	buf[0] = PROTO_START_BYTE;
-	put_u16(&buf[1], data->depth_dm);
+	put_u16(&buf[1], (uint16_t)data->depth_dm);
 	put_u16(&buf[3], (uint16_t) data->water_temp_dc); /* two's complement bits */
 	put_u16(&buf[5], data->battery_dv);
 	put_u16(&buf[7], (uint16_t) data->inside_temp_dc);

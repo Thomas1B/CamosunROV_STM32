@@ -99,7 +99,7 @@ typedef struct {
 } cmd_data_t;
 
 typedef struct {
-	uint16_t depth_dm; /* depth x10, 0-3000 (0-300.0 m) */
+	int16_t depth_dm; /* depth x10, 0-3000 (0-300.0 m) */
 	int16_t water_temp_dc; /* water temperature x10, deci-degrees C */
 	uint16_t battery_dv; /* battery voltage x10, deci-volts */
 	int16_t inside_temp_dc; /* enclosure temperature x10, deci-degrees C */
