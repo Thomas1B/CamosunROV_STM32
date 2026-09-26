@@ -29,10 +29,10 @@
 #define R1  10e3f // R1 of the voltage divider with NTC.
 
 #define RREF 10e3f      // Rref: NTC nominal resistance at 25 degC, in Ohms (R25)
-#define A1   3.354016e-3f  // Steinhart-Hart coefficient A1, units: K^-1
-#define B1   2.569850e-4f  // Steinhart-Hart coefficient B1, units: K^-1
-#define C1   2.620131e-6f  // Steinhart-Hart coefficient C1, units: K^-1
-#define D1   6.383091e-8f  // Steinhart-Hart coefficient D1, units: K^-1
+#define A1   1.157308e-03f  // Steinhart-Hart coefficient A1, units: K^-1
+#define B1   2.257625e-04f  // Steinhart-Hart coefficient B1, units: K^-1
+#define C1   7.649140e-07f  // Steinhart-Hart coefficient C1, units: K^-1
+#define D1   6.711181e-08f  // Steinhart-Hart coefficient D1, units: K^-1
 
 float therm_get_ntc_resistance(float adcValue);
 float therm_get_temperature(float R);

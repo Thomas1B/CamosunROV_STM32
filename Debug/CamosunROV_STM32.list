@@ -39,13 +39,13 @@ Idx Name          Size      VMA       LMA       File off  Algn
                   CONTENTS, READONLY, DEBUGGING, OCTETS
  17 .debug_line   0001a1c7  00000000  00000000  00051412  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 18 .debug_str    000e4c1b  00000000  00000000  0006b5d9  2**0
+ 18 .debug_str    000e4c1f  00000000  00000000  0006b5d9  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 19 .comment      00000043  00000000  00000000  001501f4  2**0
+ 19 .comment      00000043  00000000  00000000  001501f8  2**0
                   CONTENTS, READONLY
- 20 .debug_frame  00006778  00000000  00000000  00150238  2**2
+ 20 .debug_frame  00006778  00000000  00000000  0015023c  2**2
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 21 .debug_line_str 0000006b  00000000  00000000  001569b0  2**0
+ 21 .debug_line_str 0000006b  00000000  00000000  001569b4  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
 
 Disassembly of section .text:
@@ -8323,10 +8323,10 @@ float therm_get_temperature(float R) {
  8003f18:	66666666 	.word	0x66666666
  8003f1c:	40711266 	.word	0x40711266
  8003f20:	461c4000 	.word	0x461c4000
- 8003f24:	3986bbf1 	.word	0x3986bbf1
- 8003f28:	3b5bcf0d 	.word	0x3b5bcf0d
- 8003f2c:	362fd582 	.word	0x362fd582
- 8003f30:	3389136a 	.word	0x3389136a
+ 8003f24:	396cbaa9 	.word	0x396cbaa9
+ 8003f28:	3a97b0d0 	.word	0x3a97b0d0
+ 8003f2c:	354d547d 	.word	0x354d547d
+ 8003f30:	33901f1c 	.word	0x33901f1c
 
 08003f34 <proto_checksum8>:
  *   returns the 8-bit sum
