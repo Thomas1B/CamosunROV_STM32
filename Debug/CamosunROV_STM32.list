@@ -6050,7 +6050,7 @@ float get_battery_voltage(void) {
  800319e:	b082      	sub	sp, #8
  80031a0:	af00      	add	r7, sp, #0
 	float raw_avg = util_average_channel(adc1_raw_buffer, ADC1_NUM_CHANNELS,
- 80031a2:	2300      	movs	r3, #0
+ 80031a2:	2301      	movs	r3, #1
  80031a4:	2210      	movs	r2, #16
  80031a6:	2102      	movs	r1, #2
  80031a8:	480c      	ldr	r0, [pc, #48]	@ (80031dc <get_battery_voltage+0x40>)
@@ -6089,7 +6089,7 @@ float get_internal_temperature(void) {
  80031ee:	b082      	sub	sp, #8
  80031f0:	af00      	add	r7, sp, #0
 	float raw_avg = util_average_channel(adc1_raw_buffer, ADC1_NUM_CHANNELS,
- 80031f2:	2301      	movs	r3, #1
+ 80031f2:	2300      	movs	r3, #0
  80031f4:	2210      	movs	r2, #16
  80031f6:	2102      	movs	r1, #2
  80031f8:	480a      	ldr	r0, [pc, #40]	@ (8003224 <get_internal_temperature+0x38>)

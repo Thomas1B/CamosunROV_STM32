@@ -58,8 +58,8 @@ typedef enum {
  * Identifies which physical input is being read via ADC1.
  */
 typedef enum {
-	CH_BATTERY = 0, // battery channel
-	CH_TEMPERATURE // thermistor channel
+	CH_TEMPERATURE = 0, // thermistor channel
+	CH_BATTERY, // battery channel
 } ADC1_channel_t;
 
 /* USER CODE END PTD */
