@@ -153,15 +153,38 @@ void motor6(int32_t throttlePercent) {
 }
 
 /**
- * @brief Sets camera tilt servo angle
- * @param throttlePercent Throttle value as a percentage (-100 to 100).
+ * @brief Converts a camera tilt angle to a servo pulse width in microseconds.
+ * @param tiltDeciDeg Tilt in deci-degrees (x10), 0 = level, + = up.
+ *        Expected range SERVO_MIN_ANGLE_DC..SERVO_MAX_ANGLE_DC.
+ *        Values outside this range are clamped before mapping, so a bad
+ *        input saturates at the servo's end stop instead of being
+ *        extrapolated past SERVO_MIN_PULSE / SERVO_MAX_PULSE.
+ * @retval Pulse width in microseconds.
  */
-void servo(int32_t pulse) {
-	if (pulse > SERVO_MAX_PULSE) {
-		pulse = SERVO_MAX_PULSE;
-	} else if (pulse < SERVO_MIN_PULSE) {
-		pulse = SERVO_MIN_PULSE;
+
+static inline uint32_t tiltToPulse(int32_t tiltDeciDeg) {
+	if (tiltDeciDeg > (int32_t) SERVO_MAX_ANGLE_DC) {
+		tiltDeciDeg = (int32_t) SERVO_MAX_ANGLE_DC;
+	} else if (tiltDeciDeg < (int32_t) SERVO_MIN_ANGLE_DC) {
+		tiltDeciDeg = (int32_t) SERVO_MIN_ANGLE_DC;
 	}
 
-	__HAL_TIM_SET_COMPARE(SERVO_TIM, SERVO_CHANNEL, pulse);
+	if (SERVO_REVERSED) { // checking servo orientation
+		tiltDeciDeg = -tiltDeciDeg;
+	}
+
+	/* -900 -> 1000 us, 0 -> 1500 us, +900 -> 2000 us (~0.556 us per 0.1 deg) */
+	return lroundf(util_map((float) tiltDeciDeg, SERVO_MIN_ANGLE_DC,
+	SERVO_MAX_ANGLE_DC, SERVO_MIN_PULSE, SERVO_MAX_PULSE));
 }
+
+/**
+ * @brief Sets camera tilt servo angle.
+ * @param tiltDeciDeg Tilt in deci-degrees (x10), e.g. -155 = -15.5 deg.
+ *        0 = level, + = up, clamped to -900..900 (-90.0..90.0 deg).
+ *        This is the cam_tilt_dc value straight from the Pi command frame.
+ */
+void servo(int32_t tiltDeciDeg) {
+	__HAL_TIM_SET_COMPARE(SERVO_TIM, SERVO_CHANNEL, tiltToPulse(tiltDeciDeg));
+}
+
