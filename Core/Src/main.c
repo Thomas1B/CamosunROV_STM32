@@ -1078,13 +1078,13 @@ static void apply_command(const cmd_data_t *cmd) {
 		motor4(cmd->motor[3]);
 		motor5(cmd->motor[4]);
 		motor6(cmd->motor[5]);
+
+
+		// Camera tilt (deci-degrees, e.g. -155 = -15.5 deg). Done outside the
+		// leak check on purpose: TIM3 is not on BKIN, and being able to aim the
+		// camera is useful while finding a leak. servo() clamps its own input.
+		servo(cmd->tilt_dc);
 	}
-
-	// Camera tilt (deci-degrees, e.g. -155 = -15.5 deg). Done outside the
-	// leak check on purpose: TIM3 is not on BKIN, and being able to aim the
-	// camera is useful while finding a leak. servo() clamps its own input.
-	servo(cmd->tilt_dc);
-
 }
 
 /**
