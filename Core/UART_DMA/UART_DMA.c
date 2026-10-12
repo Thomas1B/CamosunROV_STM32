@@ -22,13 +22,13 @@
  *
  *    Telemetry frame (TELEM_FRAME_SIZE = 18 bytes), 16-bit fields little-endian:
  *      [0]      START          0xAA
- *      [1..2]   depth          uint16, decimetres
- *      [3..4]   water temp     int16,  0.1 degC
- *      [5..6]   battery        uint16, 0.1 V
- *      [7..8]   inside temp    int16,  0.1 degC
- *      [9..10]  heading        uint16, 0.1 deg
- *      [11..12] roll           int16,  0.1 deg
- *      [13..14] pitch          int16,  0.1 deg
+ *      [1..2]   depth          int16,  0.01 m (centimetres)
+ *      [3..4]   water temp     int16,  0.01 degC
+ *      [5..6]   battery        uint16, 0.01 V
+ *      [7..8]   inside temp    int16,  0.01 degC
+ *      [9..10]  heading        uint16, 0.01 deg
+ *      [11..12] roll           int16,  0.01 deg
+ *      [13..14] pitch          int16,  0.01 deg
  *      [15]     leak           uint8
  *      [16]     fault flags    uint8
  *      [17]     checksum       8-bit sum of bytes [1..16]
@@ -303,13 +303,13 @@ static void put_u16(uint8_t *dst, uint16_t v) {
  *
  *   Byte   Field            Unit
  *   0      start byte       PROTO_START_BYTE
- *   1-2    depth            decimetres
- *   3-4    water temp       0.1 °C, signed
- *   5-6    battery          0.1 V
- *   7-8    inside temp      0.1 °C, signed
- *   9-10   heading          0.1 degree
- *   11-12  roll             0.1 degree, signed
- *   13-14  pitch            0.1 degree, signed
+ *   1-2    depth            0.01 m (centimetres), signed
+ *   3-4    water temp       0.01 °C, signed
+ *   5-6    battery          0.01 V
+ *   7-8    inside temp      0.01 °C, signed
+ *   9-10   heading          0.01 degree
+ *   11-12  roll             0.01 degree, signed
+ *   13-14  pitch            0.01 degree, signed
  *   15     leak             leak flag
  *   16     fault flags      bit field
  *   17     checksum         over bytes 1-16 (start byte not included)
@@ -321,13 +321,13 @@ static void put_u16(uint8_t *dst, uint16_t v) {
 void proto_build_telem_frame(const telem_data_t *data,
 		uint8_t buf[TELEM_FRAME_SIZE]) {
 	buf[0] = PROTO_START_BYTE;
-	put_u16(&buf[1], (uint16_t)data->depth_dm);
-	put_u16(&buf[3], (uint16_t) data->water_temp_dc); /* two's complement bits */
-	put_u16(&buf[5], data->battery_dv);
-	put_u16(&buf[7], (uint16_t) data->inside_temp_dc);
-	put_u16(&buf[9], data->heading_dc);
-	put_u16(&buf[11], (uint16_t) data->roll_dc);
-	put_u16(&buf[13], (uint16_t) data->pitch_dc);
+	put_u16(&buf[1], (uint16_t) data->depth_x100); /* two's complement bits */
+	put_u16(&buf[3], (uint16_t) data->water_temp_x100);
+	put_u16(&buf[5], data->battery_x100);
+	put_u16(&buf[7], (uint16_t) data->inside_temp_x100);
+	put_u16(&buf[9], data->heading_x100);
+	put_u16(&buf[11], (uint16_t) data->roll_x100);
+	put_u16(&buf[13], (uint16_t) data->pitch_x100);
 	buf[15] = data->leak;
 	buf[16] = data->fault_flags;
 	buf[17] = proto_checksum8(&buf[1], TELEM_FRAME_SIZE - 2);

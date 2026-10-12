@@ -162,8 +162,8 @@ float get_battery_voltage(void);
 float get_internal_temperature(void);
 void bno055_check_connection(void);
 
-static uint16_t to_u16_x10(float v);
-static int16_t to_i16_x10(float v);
+static uint16_t to_u16_x100(float v);
+static int16_t to_i16_x100(float v);
 static void apply_command(const cmd_data_t *cmd);
 static void apply_failsafe(void);
 static void read_sensors(void);
@@ -1024,45 +1024,59 @@ static void read_sensors(void) {
 }
 
 /**
- * @brief Converts a float to an unsigned x10 integer ("deci-units") for the
- *        telemetry frame.
+ * @brief Converts a float to an unsigned x100 integer for the telemetry frame.
  *
- * Every telemetry value is sent as a whole number scaled by 10, so one
- * decimal place survives without sending a float over UART. The Pi divides
- * by 10.0 to get the real value back.
+ * Every telemetry value is sent as a whole number scaled by 100, so two
+ * decimal places survive without sending a float over UART. The Pi divides
+ * by 100.0 to get the real value back.
  *
- * Used for the unsigned fields: depth_dm, battery_dv, heading_dc.
+ * Used for the unsigned fields: battery_x100, heading_x100.
  *
- * @note  No clamping. v must be 0.0 to 6553.5 to fit a uint16_t. Only for
- *        values that are never negative -- adding +0.5 rounds the wrong way
- *        for negative numbers (use to_i16_x10() for those).
+ * @note  Clamped to the uint16_t range: anything below 0.00 is sent as 0,
+ *        anything above 655.35 is sent as 655.35. (Without the clamp, an
+ *        out-of-range float -> integer cast is undefined behaviour in C.)
  *
- * @param  v  Value in real units, e.g. 299.5 (m), 15.8 (V), 359.9 (deg).
- * @return    v x 10, rounded, e.g. 299.5 -> 2995.
+ * @param  v  Value in real units, e.g. 15.84 (V), 359.94 (deg).
+ * @return    v x 100, rounded, e.g. 15.84 -> 1584.
  */
-static uint16_t to_u16_x10(float v) {
-	return (uint16_t) (v * 10.0f + 0.5f);
+static uint16_t to_u16_x100(float v) {
+	float s = v * 100.0f + 0.5f;
+	if (s <= 0.0f) {
+		return 0U;
+	}
+	if (s >= (float) UINT16_MAX) {
+		return UINT16_MAX;
+	}
+	return (uint16_t) s;
 }
 
 /**
- * @brief Converts a float to a signed x10 integer ("deci-units") for the
- *        telemetry frame.
+ * @brief Converts a float to a signed x100 integer for the telemetry frame.
  *
- * Same idea as to_u16_x10(), but for values that can be negative. Rounding
+ * Same idea as to_u16_x100(), but for values that can be negative. Rounding
  * must go AWAY from zero on both sides, so the 0.5 is added for positive
  * values and subtracted for negative ones.
  *
- * Used for the signed fields: water_temp_dc, inside_temp_dc, roll_dc,
- * pitch_dc.
+ * Used for the signed fields: depth_x100, water_temp_x100,
+ * inside_temp_x100, roll_x100, pitch_x100. (depth is signed because the
+ * Bar30 can read slightly negative at the surface.)
  *
- * @note  No clamping. v must be -3276.8 to 3276.7 to fit an int16_t.
+ * @note  Clamped to the int16_t range: -327.68 to 327.67. Enough for depth
+ *        (Bar30 is rated to 300 m), temperatures, and roll/pitch (+-180 deg).
  *
- * @param  v  Value in real units, e.g. -5.2 (degC), -45.0 (deg).
- * @return    v x 10, rounded, e.g. -5.2 -> -52.
+ * @param  v  Value in real units, e.g. -5.27 (degC), -45.03 (deg).
+ * @return    v x 100, rounded, e.g. -5.27 -> -527.
  */
-static int16_t to_i16_x10(float v) {
-	float s = v * 10.0f;
-	return (int16_t) ((s >= 0.0f) ? (s + 0.5f) : (s - 0.5f));
+static int16_t to_i16_x100(float v) {
+	float s = v * 100.0f;
+	s = (s >= 0.0f) ? (s + 0.5f) : (s - 0.5f);
+	if (s >= (float) INT16_MAX) {
+		return INT16_MAX;
+	}
+	if (s <= (float) INT16_MIN) {
+		return INT16_MIN;
+	}
+	return (int16_t) s;
 }
 
 /**
@@ -1121,13 +1135,13 @@ static void apply_failsafe(void) {
 static void send_telemetry(void) {
 	telem_data_t data;
 
-	data.depth_dm = to_i16_x10(depth);
-	data.water_temp_dc = to_i16_x10(water_temperature);
-	data.battery_dv = to_u16_x10(battery_voltage);
-	data.inside_temp_dc = to_i16_x10(internal_temperature);
-	data.heading_dc = to_u16_x10((float) imu_vec.x); // x = heading
-	data.roll_dc = to_i16_x10((float) imu_vec.y);    // y = roll
-	data.pitch_dc = to_i16_x10((float) imu_vec.z);   // z = pitch
+	data.depth_x100 = to_i16_x100(depth);
+	data.water_temp_x100 = to_i16_x100(water_temperature);
+	data.battery_x100 = to_u16_x100(battery_voltage);
+	data.inside_temp_x100 = to_i16_x100(internal_temperature);
+	data.heading_x100 = to_u16_x100((float) imu_vec.x); // x = heading
+	data.roll_x100 = to_i16_x100((float) imu_vec.y);    // y = roll
+	data.pitch_x100 = to_i16_x100((float) imu_vec.z);   // z = pitch
 	// leak = 1 if the LEAK fault bit is set, otherwise 0
 	if (reportedFaults & SYS_STATE_FAULT_LEAK) {
 		data.leak = 1U;

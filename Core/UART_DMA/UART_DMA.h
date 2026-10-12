@@ -53,10 +53,10 @@
  *       1 B        6x 1 B         2 B (i16)       1 B
  *
  *  STM32 -> Pi (telemetry), 18 bytes:
- *    [ START ][ depth_dm ][ water_temp_dc ][ battery_dv ][ inside_temp_dc ]
- *       1 B      2 B (u16)     2 B (i16)       2 B (u16)      2 B (i16)
- *    [ heading_dc ][ roll_dc ][ pitch_dc ][ leak ][ fault_flags ][ CHECKSUM ]
- *       2 B (u16)    2 B (i16)   2 B (i16)  1 B (u8)   1 B (u8)       1 B
+ *    [ START ][ depth_x100 ][ water_temp_x100 ][ battery_x100 ][ inside_temp_x100 ]
+ *       1 B      2 B (i16)       2 B (i16)          2 B (u16)        2 B (i16)
+ *    [ heading_x100 ][ roll_x100 ][ pitch_x100 ][ leak ][ fault_flags ][ CHECKSUM ]
+ *       2 B (u16)      2 B (i16)    2 B (i16)    1 B (u8)   1 B (u8)       1 B
  *
  *  cam_tilt_dc: camera tilt x10 (deci-degrees), 0 = level, + = up.
  *               No range clamping is done in this protocol layer -- the
@@ -67,8 +67,14 @@
  *               Stored as uint8_t, since a combination of flags (e.g.
  *               LEAK | TEMP = 0x09) is not itself one of the enum's values.
  *
- *  All multi-byte values little-endian. Tilt and telemetry measurements
- *  are scaled x10 ("deci-units"); motors are plain percent (-100..100).
+ *  All multi-byte values little-endian. Telemetry measurements are scaled
+ *  x100 (2 decimal places, e.g. 12.34 m -> 1234). Camera tilt is scaled x10
+ *  (deci-degrees); motors are plain percent (-100..100).
+ *
+ *  Telemetry ranges that fit the 16-bit fields at x100 (values outside are
+ *  clamped to the limit by the sender, see to_i16_x100()/to_u16_x100()):
+ *    i16 fields: -327.68 .. 327.67   (depth m, temps degC, roll/pitch deg)
+ *    u16 fields:    0.00 .. 655.35   (battery V, heading deg)
  *  CHECKSUM = sum of all bytes between START and CHECKSUM, mod 256.
  *
  * ==========================================================================
@@ -99,13 +105,13 @@ typedef struct {
 } cmd_data_t;
 
 typedef struct {
-	int16_t depth_dm; /* depth x10, 0-3000 (0-300.0 m) */
-	int16_t water_temp_dc; /* water temperature x10, deci-degrees C */
-	uint16_t battery_dv; /* battery voltage x10, deci-volts */
-	int16_t inside_temp_dc; /* enclosure temperature x10, deci-degrees C */
-	uint16_t heading_dc; /* BNO055 heading x10, 0-3600 */
-	int16_t roll_dc; /* BNO055 roll x10, ~-900..900 */
-	int16_t pitch_dc; /* BNO055 pitch x10, ~-1800..1800 */
+	int16_t depth_x100; /* depth x100, centimetres, 0-30000 (0-300.00 m) */
+	int16_t water_temp_x100; /* water temperature x100, 0.01 degC */
+	uint16_t battery_x100; /* battery voltage x100, 0.01 V */
+	int16_t inside_temp_x100; /* enclosure temperature x100, 0.01 degC */
+	uint16_t heading_x100; /* BNO055 heading x100, 0-36000 (0.01 deg) */
+	int16_t roll_x100; /* BNO055 roll x100, ~-9000..9000 */
+	int16_t pitch_x100; /* BNO055 pitch x100, ~-18000..18000 */
 	uint8_t leak; /* 0 = dry, 1 = leak detected right now */
 	uint8_t fault_flags; /* latched SystemState_t flags, OR'ed */
 } telem_data_t;
