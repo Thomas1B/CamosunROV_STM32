@@ -139,6 +139,16 @@ uint8_t proto_rx_event_handler(UART_HandleTypeDef *huart, uint16_t size,
 void proto_rx_error_handler(UART_HandleTypeDef *huart);
 
 /*
+ * proto_get_cmd_checksum_errors()
+ * Number of command frames lost to a checksum failure since boot: a START
+ * byte followed by a full CMD_FRAME_SIZE bytes whose checksum didn't match.
+ * Not counted until the first valid frame arrives (ignores start-up noise).
+ * Frames that never arrive at all, or chunks dropped by a UART error, are
+ * NOT counted -- this is a checksum-failure count only.
+ */
+uint32_t proto_get_cmd_checksum_errors(void);
+
+/*
  * proto_rx_keepalive()
  * Safety net, call on EVERY pass of the main loop. If reception is not
  * running and nothing is mid-abort, restarts it -- e.g. when a re-arm in

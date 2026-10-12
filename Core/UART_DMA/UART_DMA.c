@@ -56,6 +56,23 @@
 static uint8_t dmaBuf[PROTO_RX_DMA_SIZE];
 static uint8_t txBuf[TELEM_FRAME_SIZE];
 
+/* =========================================================================
+ * Lost-command counter (checksum failures)
+ *
+ * cmdChecksumErrors : number of command frames that started with a START
+ *                     byte, had all CMD_FRAME_SIZE bytes, but failed the
+ *                     checksum. Written only in the UART RX interrupt; read
+ *                     from the main loop via proto_get_cmd_checksum_errors().
+ *                     A 32-bit aligned read is atomic on the Cortex-M4, so
+ *                     no interrupt disabling is needed to read it.
+ * rxSynced          : 0 until the first valid frame since boot. Failures are
+ *                     not counted before that, so line noise or a frame cut
+ *                     in half while the STM32 / Pi is starting up does not
+ *                     show up as packet loss.
+ * ========================================================================= */
+static volatile uint32_t cmdChecksumErrors = 0;
+static uint8_t rxSynced = 0;
+
 /*
  * Computes an 8-bit additive checksum: the sum of `len` bytes starting at
  * `data`, modulo 256 (the uint8_t cast lets overflow wrap around).
@@ -175,14 +192,29 @@ uint8_t proto_rx_event_handler(UART_HandleTypeDef *huart, uint16_t size,
 
 	/* Scan for complete frames. On a match, jump past the whole frame; on a
 	 * false START (e.g. motor value -86 = 0xAA) advance one byte, so a real
-	 * frame right after it in the same chunk is still found. */
+	 * frame right after it in the same chunk is still found.
+	 *
+	 * Checksum failures are counted as lost commands. badUntil stops one
+	 * corrupted frame from being counted more than once: a corrupted frame
+	 * whose body also contains 0xAA would otherwise give a second failing
+	 * "START" a few bytes later. Only a failure at or after badUntil (i.e.
+	 * outside the CMD_FRAME_SIZE bytes of the last counted one) is counted. */
 	uint16_t i = 0;
+	uint16_t badUntil = 0;
 	while ((uint16_t) (i + CMD_FRAME_SIZE) <= size) {
-		if (proto_frame_valid(&dmaBuf[i])) {
+		if (dmaBuf[i] != PROTO_START_BYTE) {
+			i++; /* not a frame start: skip quickly, not a loss */
+		} else if (proto_frame_valid(&dmaBuf[i])) {
 			proto_unpack_cmd_frame(&dmaBuf[i], out); /* last valid one wins */
 			found = 1;
+			rxSynced = 1;
 			i += CMD_FRAME_SIZE;
 		} else {
+			/* START byte present but checksum wrong -> corrupted frame */
+			if (rxSynced && (i >= badUntil)) {
+				cmdChecksumErrors++;
+				badUntil = (uint16_t) (i + CMD_FRAME_SIZE);
+			}
 			i++;
 		}
 	}
@@ -193,6 +225,15 @@ uint8_t proto_rx_event_handler(UART_HandleTypeDef *huart, uint16_t size,
 	proto_start_rx(huart);
 
 	return found;
+}
+
+/*
+ * Returns the number of command frames rejected by the checksum since boot
+ * (counted only after the first valid frame). Safe to call from the main
+ * loop at any time.
+ */
+uint32_t proto_get_cmd_checksum_errors(void) {
+	return cmdChecksumErrors;
 }
 
 /*

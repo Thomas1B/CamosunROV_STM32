@@ -346,13 +346,6 @@ int main(void) {
 
 		/* ---- 4. Debug print over SWO (uses the values read above) ------ */
 		if ((HAL_GetTick() - Debug_lastPrint) > DEBUG_PRINT_MS) {
-			printf("Euler: Heading=%0.2f, Roll=%0.2f, Pitch=%0.2f\r\n",
-					imu_vec.x, imu_vec.y, imu_vec.z);
-
-			printf("Battery Voltage = %0.3f, ", battery_voltage);
-			printf("Internal Temperature = %0.3f\n", internal_temperature);
-			printf("Depth = %0.2f \n", depth);
-
 			if (!linkEstablished) {
 				printf("Pi cmd: none received yet\r\n");
 			} else {
@@ -366,7 +359,16 @@ int main(void) {
 						(unsigned long) sinceCmd,
 						failsafeActive ? " [FAILSAFE: motors stopped]" : "",
 						reportedFaults);
+				printf("Pi link: lost cmds (checksum) = %lu\r\n",
+						(unsigned long) proto_get_cmd_checksum_errors());
+
+
 			}
+			printf("Euler: Heading=%0.2f, Roll=%0.2f, Pitch=%0.2f\r\n",
+					imu_vec.x, imu_vec.y, imu_vec.z);
+			printf("Battery Voltage = %0.3f\n", battery_voltage);
+			printf("Internal Temperature = %0.3f\n", internal_temperature);
+			printf("Depth = %0.2f \n\n", depth);
 
 			Debug_lastPrint = HAL_GetTick();
 		}
