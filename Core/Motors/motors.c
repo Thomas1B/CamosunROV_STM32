@@ -4,7 +4,7 @@
  *  Created on: Jul 19, 2026
  *  Author: Thomas Bourgeois
  *
- *  This software is written to control either an Afro30A or BlueRobotics Basic ESC.
+ *  This software is written to control ECSs (Afro30A or BlueRobotics Basic ESC) and the the camera tilt servo
  *
  *	Nothing in this file needs to be changed. Any user changes are done in motors.h. *
  *
@@ -23,17 +23,17 @@
  */
 
 static const MotorPulseLimits motor1_limits = { MOTOR1_REVERSE_ONSET_PULSE,
-		MOTOR1_FORWARD_ONSET_PULSE };
+MOTOR1_FORWARD_ONSET_PULSE };
 static const MotorPulseLimits motor2_limits = { MOTOR2_REVERSE_ONSET_PULSE,
-		MOTOR2_FORWARD_ONSET_PULSE };
+MOTOR2_FORWARD_ONSET_PULSE };
 static const MotorPulseLimits motor3_limits = { MOTOR3_REVERSE_ONSET_PULSE,
-		MOTOR3_FORWARD_ONSET_PULSE };
+MOTOR3_FORWARD_ONSET_PULSE };
 static const MotorPulseLimits motor4_limits = { MOTOR4_REVERSE_ONSET_PULSE,
-		MOTOR4_FORWARD_ONSET_PULSE };
+MOTOR4_FORWARD_ONSET_PULSE };
 static const MotorPulseLimits motor5_limits = { MOTOR5_REVERSE_ONSET_PULSE,
-		MOTOR5_FORWARD_ONSET_PULSE };
+MOTOR5_FORWARD_ONSET_PULSE };
 static const MotorPulseLimits motor6_limits = { MOTOR6_REVERSE_ONSET_PULSE,
-		MOTOR6_FORWARD_ONSET_PULSE };
+MOTOR6_FORWARD_ONSET_PULSE };
 
 /**
  * @brief Converts a throttle percentage to a pulse width in microseconds, using the
@@ -58,7 +58,8 @@ static inline uint32_t throttleToPulse(const MotorPulseLimits *limits,
 		return (uint32_t) MOTOR_NEUTRAL_PULSE;
 	} else if (throttlePercent > 0) {
 		return lroundf(
-				util_map(throttlePercent, 0.0f, 100.0f, limits->forwardOnsetPulse,
+				util_map(throttlePercent, 0.0f, 100.0f,
+						limits->forwardOnsetPulse,
 						MOTOR_MAX_PULSE));
 	} else {
 		return lroundf(
@@ -149,4 +150,18 @@ void motor5(int32_t throttlePercent) {
 void motor6(int32_t throttlePercent) {
 	__HAL_TIM_SET_COMPARE(MOTOR6_TIM, MOTOR6_CHANNEL,
 			throttleToPulse(&motor6_limits, throttlePercent));
+}
+
+/**
+ * @brief Sets camera tilt servo angle
+ * @param throttlePercent Throttle value as a percentage (-100 to 100).
+ */
+void servo(int32_t pulse) {
+	if (pulse > SERVO_MAX_PULSE) {
+		pulse = SERVO_MAX_PULSE;
+	} else if (pulse < SERVO_MIN_PULSE) {
+		pulse = SERVO_MIN_PULSE;
+	}
+
+	__HAL_TIM_SET_COMPARE(SERVO_TIM, SERVO_CHANNEL, pulse);
 }

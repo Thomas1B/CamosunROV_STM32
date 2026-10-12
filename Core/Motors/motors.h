@@ -61,6 +61,20 @@ extern TIM_HandleTypeDef htim8; /* the real variable lives in main.c */
 #define MOTOR_MAX_PULSE      1900.0f
 
 /*
+ * DO NOT CHANGE
+ * Fixed pulse limits (microseconds) for the MG90S servo, taken from the
+ * datasheet: 1000 us = -90 deg, 1500 us = center, 2000 us = +90 deg,
+ * at a 50 Hz (20 ms) PWM period. These are the hardware min/max/neutral
+ * pulse widths, not per-servo tuning. Pulses outside this range can drive
+ * the servo past its mechanical stop and cause stalling or gear damage.
+ */
+#define SERVO_TIM 			 &htim3
+#define SERVO_CHANNEL 		 TIM_CHANNEL_3
+#define SERVO_MIN_PULSE      1000.0f
+#define SERVO_NEUTRAL_PULSE  1500.0f
+#define SERVO_MAX_PULSE      2000.0f
+
+/*
  * Per-motor pulse calibration, in microseconds.
  *
  * REVERSE_ONSET / FORWARD_ONSET mark the ESC's "deadband" boundary either side of
