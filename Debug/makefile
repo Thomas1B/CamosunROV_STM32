@@ -12,6 +12,7 @@ RM := rm -rf
 -include Drivers/STM32F4xx_HAL_Driver/Src/subdir.mk
 -include Core/UART_DMA/subdir.mk
 -include Core/Thermistor/subdir.mk
+-include Core/TSYS01/subdir.mk
 -include Core/Startup/subdir.mk
 -include Core/Src/subdir.mk
 -include Core/MyUtils/subdir.mk
