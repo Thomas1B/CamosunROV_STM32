@@ -170,6 +170,7 @@ static void apply_command(const cmd_data_t *cmd);
 static void apply_failsafe(void);
 static void read_sensors(void);
 static void send_telemetry(void);
+static void print_faults(uint8_t faults);
 
 /* USER CODE END PFP */
 
@@ -363,21 +364,22 @@ int main(void) {
 						lastAppliedCmd.motor[2], lastAppliedCmd.motor[3],
 						lastAppliedCmd.motor[4], lastAppliedCmd.motor[5],
 						lastAppliedCmd.tilt_dc / 10.0f);
-				printf("Pi link: last cmd %lu ms ago%s, faults=0x%02X\r\n",
+				printf("Pi link: last cmd %lu ms ago%s\r\n",
 						(unsigned long) sinceCmd,
-						failsafeActive ? " [FAILSAFE: motors stopped]" : "",
-						reportedFaults);
+						failsafeActive ? " [FAILSAFE: motors stopped]" : "");
 				printf("Pi link: lost cmds (checksum) = %lu\r\n",
 						(unsigned long) proto_get_cmd_checksum_errors());
 
 
 			}
-			printf("Euler: Heading=%0.2f, Roll=%0.2f, Pitch=%0.2f\r\n",
+			printf("Euler: Heading = %0.2f, Roll = %0.2f, Pitch = %0.2f\r\n",
 					imu_vec.x, imu_vec.y, imu_vec.z);
 			printf("Battery Voltage = %0.3f\n", battery_voltage);
 			printf("Internal Temperature = %0.3f\n", internal_temperature);
 			printf("Water Temperature = %0.2f\n", water_temperature);
-			printf("Depth = %0.2f \n\n", depth);
+			printf("Depth = %0.2f\n", depth);
+			print_faults(system_state_t);
+			printf("\n");
 
 			Debug_lastPrint = HAL_GetTick();
 		}
@@ -1141,6 +1143,26 @@ static void apply_failsafe(void) {
 	if (linkEstablished) {
 		reportedFaults |= SYS_STATE_FAULT_UART;
 	}
+}
+
+/**
+ * @brief Prints the latched faults by name over SWO, e.g.
+ *        "Faults: 0x09 [LEAK TEMP]" or "Faults: none".
+ *
+ * Names match SystemState_t (and FAULT_NAMES in UART_DMA.py on the Pi).
+ */
+static void print_faults(uint8_t faults) {
+	if (faults == SYS_STATE_FAULT_NONE) {
+		printf("Faults: none\r\n");
+		return;
+	}
+	printf("Faults: 0x%02X [", faults);
+	if (faults & SYS_STATE_FAULT_LEAK)  printf(" LEAK");
+	if (faults & SYS_STATE_FAULT_IMU)   printf(" IMU");
+	if (faults & SYS_STATE_FAULT_DEPTH) printf(" DEPTH");
+	if (faults & SYS_STATE_FAULT_TEMP)  printf(" TEMP");
+	if (faults & SYS_STATE_FAULT_UART)  printf(" UART");
+	printf(" ]\r\n");
 }
 
 /**
