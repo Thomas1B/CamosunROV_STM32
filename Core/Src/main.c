@@ -11,7 +11,6 @@
  *
  * This software is licensed under terms that can be found in the LICENSE file
  * in the root directory of this software component.
- * If no LICENSE file comes with this software, it is provided AS-IS.
  *
  ******************************************************************************
  */
@@ -28,6 +27,7 @@
 #include "thermistor.h"
 #include "bno055_stm32.h"
 #include "bar30.h"
+#include "TSYS01.h"
 #include "UART_DMA.h"
 
 /* USER CODE END Includes */
@@ -116,6 +116,8 @@ bno055_calibration_data_t savedCalData = { .offset.accel = { .x = -7, .y = 6,
 		.radius.mag = 1484 };
 
 MS5837_t bar30; //  instance of bar30 pressure sensor
+TSYS01_t celsius; // instance of Celsius (TSYS01) water temperature sensor
+static bool celsius_converting = false; // true = a TSYS01 conversion was started last loop and is ready to read
 
 float battery_voltage; // var to store battery voltage
 float internal_temperature; // var to store internal temperature
@@ -256,6 +258,12 @@ int main(void) {
 		MS5837_SetModel(&bar30, MS5837_MODEL_30BA); // set the sensor model
 		bar30.secondOrderCalculation = false; // enable second order calculation, compensates for water below 15C.
 
+		// Setting Celsius (TSYS01) water temperature sensor, same I2C bus as the Bar30 (0x77 vs 0x76, no clash)
+		TSYS01_SetI2C(&celsius, &hi2c1); // Assign the I2C handle to the TSYS01
+		if (!TSYS01_Init(&celsius)) { // resets the sensor, reads + checksums its PROM coefficients
+			system_state_t += SYS_STATE_FAULT_TEMP;
+		}
+
 		// Starting ADC DMA with timer
 		HAL_TIM_Base_Start(&htim2);
 		HAL_ADC_Start_DMA(&hadc1, (uint32_t*) adc1_raw_buffer,
@@ -368,6 +376,7 @@ int main(void) {
 					imu_vec.x, imu_vec.y, imu_vec.z);
 			printf("Battery Voltage = %0.3f\n", battery_voltage);
 			printf("Internal Temperature = %0.3f\n", internal_temperature);
+			printf("Water Temperature = %0.2f\n", water_temperature);
 			printf("Depth = %0.2f \n\n", depth);
 
 			Debug_lastPrint = HAL_GetTick();
@@ -1011,11 +1020,19 @@ static void read_sensors(void) {
 		depth = MS5837_GetDepth(&bar30);
 	}
 
-	// Water temperature sensor (separate device from the Bar30).
-	// Skipped if SYS_STATE_FAULT_TEMP is latched -- set that flag in your
-	// init code if this sensor fails to start.
+	// Water temperature sensor (Celsius / TSYS01, separate device from the Bar30).
+	// Skipped if SYS_STATE_FAULT_TEMP is latched at boot.
+	//
+	// Non-blocking: a conversion takes up to ~10 ms, and TSYS01_Read() would
+	// stall the loop for that long every 20 ms. Instead, each call reads the
+	// conversion started on the previous call (20 ms ago, so it's finished),
+	// then starts the next one. water_temperature is therefore one telemetry
+	// period (20 ms) old, which doesn't matter for water temperature.
 	if (!(reportedFaults & SYS_STATE_FAULT_TEMP)) {
-		// TODO: water_temperature = <your water temperature sensor read>;
+		if (celsius_converting && TSYS01_ReadResult(&celsius)) {
+			water_temperature = TSYS01_GetTemperature(&celsius);
+		}
+		celsius_converting = TSYS01_StartConversion(&celsius);
 	}
 
 	if (!(reportedFaults & SYS_STATE_FAULT_IMU)) {
