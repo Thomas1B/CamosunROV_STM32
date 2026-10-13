@@ -1,52 +1,155 @@
 # CamosunROV STM32
 
-This is the repository for the STM32 board used in the Camosun College ROV project. 
+This is the repository for the STM32 board used in the Camosun College ROV project.
 It contains the firmware and related resources for the STM32 microcontroller that controls the ROV's motors and sensors.
 
-The STM32 chip used is the STM32F446RE, which is a high-performance ARM Cortex-M4 microcontroller.<br>
+The STM32 chip used is the STM32F446RE, which is a high-performance ARM Cortex-M4F microcontroller.<br>
 Datasheet: [STM32F446RE Datasheet](https://www.st.com/en/microcontrollers-microprocessors/stm32f446/documentation.html)
 
-This custom STM32 board is designed to communicate with a Raspberry Pi 4 via UART.<br>
-It receives commands from the Raspberry Pi to control the ROV's motors and sensors accordingly, while sending sensor data back to the Pi.
+This custom STM32 board communicates with a Raspberry Pi 4 over UART (UART4, DMA in both directions).<br>
+The Pi sends thruster and camera-tilt commands at 50 Hz; the STM32 applies them and sends sensor telemetry back at 50 Hz.
+
+Built with STM32CubeIDE / STM32CubeMX, firmware package **STM32Cube FW_F4 V1.28.3**.
 
 <hr>
 
 # TODO:
-- [ ] Notification Leds on boot up
-- [ ] Find each ESC's deadband range
-- [ ] Add I2C Water Temperature Sensor firmware
-- [ ] Setup UART from Pi
-- [ ] Setup UART to Pi
-- [ ] Finish Emergency Shutdown Function
-- [ ] Restart function (restarts PWM generation, ADC reads, etc)
+- [ ] Status LEDs
+- [ ] Find each ESC's deadband range (all motors still use the default 1450 µs / 1550 µs onset values)
+- [ ] Test I2C Water Temperature Sensor firmware (waiting for sensor to arrive)
+- [ ] Finish Emergency Shutdown Function (yellow LED for sensor faults still commented out)
+- [ ] Restart / fault-clear function (restarts PWM generation, ADC reads, re-enables BKIN interrupts, etc.)
+- [ ] Test camera tilt servo on hardware
+
 <hr>
 
 ## Features
-- Communicates with Raspberry Pi 4 via UART
-- Controls 6 motors with automatic cutoff with leak sensor
-- Leak Detection
-- Interfaces with various sensors (e.g, Pressure sensor, Temperature sensor, and IMU)
-- Battery Voltage Monitor
-- Viewing Lights
+- Communicates with Raspberry Pi 4 via UART4 (115200 bit/s, 8N1, DMA RX with idle-line detection + DMA TX)
+- Controls 6 thrusters with automatic hardware cutoff on leak (TIM1/TIM8 break input)
+- Camera tilt servo (MG90S)
+- Leak detection (hardware break input, latched fault)
+- Command timeout failsafe: thrusters stop if no valid command for 150 ms
+- Sensors:
+	- Depth / pressure — Blue Robotics Bar30 (MS5837-30BA)
+	- Water temperature — Blue Robotics Celsius (TSYS01)
+	- Orientation (heading, roll, pitch) — BNO055 IMU in NDOF mode
+	- Enclosure temperature — NTC thermistor on ADC
+	- Battery voltage — resistor divider on ADC
+- Latched fault flags reported to the Pi in every telemetry frame
+- Status LEDs (red / yellow / green)
+- SWO debug output (`printf` → ITM) every 1.5 s
+
+<hr>
+
+## Project Layout
+| Folder | Contents |
+|--------|----------|
+| `Core/Src/main.c` | Boot sequence, main loop, fault handling, sensor reads, telemetry packing |
+| `Core/UART_DMA/` | Pi ↔ STM32 serial protocol (frame building/parsing, checksums, DMA RX/TX). Keep in sync with `UART_DMA.py` on the Pi |
+| `Core/Motors/` | Thruster ESC and camera-tilt servo PWM control, per-motor calibration constants |
+| `Core/Bar30/` | MS5837 (Bar30) pressure/depth driver |
+| `Core/TSYS01/` | TSYS01 (Celsius) water temperature driver |
+| `Core/BNO055/` | BNO055 IMU driver |
+| `Core/Thermistor/` | NTC thermistor resistance → temperature (Steinhart-Hart) |
+| `Core/MyUtils/` | Helpers: value mapping, ADC averaging, fault-flag checks |
+
+<hr>
+
+## UART Protocol (Pi ↔ STM32)
+UART4, 115200 bit/s, 8 data bits, no parity, 1 stop bit. All multi-byte values are little-endian.<br>
+Start byte = `0xAA`. Checksum = sum of all bytes between START and CHECKSUM, mod 256.<br>
+Full details are in `Core/UART_DMA/UART_DMA.h`.
+
+**Pi → STM32 command (10 bytes, 50 Hz):**
+| Byte(s) | Field | Type | Units / Range |
+|:---:|-------|:---:|-------|
+| 0 | START | u8 | `0xAA` |
+| 1–6 | motor1 … motor6 | i8 | % throttle, −100 … 100 |
+| 7–8 | cam_tilt_dc | i16 | camera tilt ×10 (deci-degrees), 0 = level, + = up |
+| 9 | CHECKSUM | u8 | |
+
+**STM32 → Pi telemetry (18 bytes, 50 Hz):**
+| Byte(s) | Field | Type | Units |
+|:---:|-------|:---:|-------|
+| 0 | START | u8 | `0xAA` |
+| 1–2 | depth_x100 | i16 | m ×100 |
+| 3–4 | water_temp_x100 | i16 | °C ×100 |
+| 5–6 | battery_x100 | u16 | V ×100 |
+| 7–8 | inside_temp_x100 | i16 | °C ×100 |
+| 9–10 | heading_x100 | u16 | ° ×100 (0 … 36000) |
+| 11–12 | roll_x100 | i16 | ° ×100 |
+| 13–14 | pitch_x100 | i16 | ° ×100 |
+| 15 | leak | u8 | 0 = dry, 1 = water detected now |
+| 16 | fault_flags | u8 | latched fault bits (see below) |
+| 17 | CHECKSUM | u8 | |
+
+Values outside the field range are clamped by the sender (i16: −327.68 … 327.67, u16: 0 … 655.35).
+
+**Fault flags** (latched until reset):
+| Bit | Value | Fault |
+|:---:|:---:|-------|
+| 0 | `0x01` | LEAK |
+| 1 | `0x02` | IMU (BNO055 failed to initialise) |
+| 2 | `0x04` | DEPTH (Bar30 failed to initialise) |
+| 3 | `0x08` | TEMP (TSYS01 failed to initialise) |
+| 4 | `0x10` | UART (command timeout after link was established) |
+
+<hr>
+
+## Leak / Emergency Shutdown
+- The leak sensor drives the TIM1 and TIM8 break inputs (active HIGH). On a leak the hardware immediately forces all six thruster PWM outputs off — no software involved.
+- The break ISR only latches `SYS_STATE_FAULT_LEAK` and disables further break interrupts; `emergency_shutdown()` in the main loop then stops ADC sampling, turns the green LED off and the red LED on.
+- Telemetry keeps running so the Pi sees `leak = 1` and the LEAK fault flag.
+- The camera tilt servo (TIM3) is **not** on a break input, so the camera can still be aimed to look for the leak.
+- If a leak is present at boot, the board lights the red LED and halts.
+- Any future reset/fault-clear routine **must** re-enable and clear `TIM_IT_BREAK` on TIM1 and TIM8 and reset `emergency_shutdown_done`, otherwise leaks will no longer be detected.
+
+<hr>
+
+## Status LEDs
+| LED | Pin | Meaning |
+|-----|:---:|---------|
+
 
 <hr>
 
 ## Part Notes
-- The ESC used in this project expects a max 500Hz PWM signal with the following specs:
-	- Stop = 1500us
-	- Forward (max) = 1900us
-	- Reverse (max) = 1100us
+- The ESC used in this project expects a max 500 Hz PWM signal with the following specs:
+	- Stop = 1500 µs
+	- Forward (max) = 1900 µs
+	- Reverse (max) = 1100 µs
 
 [Afro30A - Datasheet](https://arduino.ua/docs/AfroESC30A.pdf)
 
 If possible, upgrade to [BlueRobotics BasicESC](https://bluerobotics.com/store/thrusters/speed-controllers/besc30-r3/).<br>
 Expects the same signal and specs as described above, so no change in firmware.
+
+- Per-motor deadband (onset) pulses are set in `Core/Motors/motors.h` (`MOTORn_REVERSE_ONSET_PULSE` / `MOTORn_FORWARD_ONSET_PULSE`).
+
+- Camera tilt servo: MG90S, 50 Hz, 1000 µs = −90°, 1500 µs = centre, 2000 µs = +90°.<br>
+  Commanded range is clamped to ±45.0°. Set `SERVO_REVERSED` to 1 in `motors.h` if + tilts the camera down.
+
+I2C devices (all on I2C1, 100 kHz):
+
+| Device | 7-bit Address |
+|--------|:---:|
+| BNO055 IMU | `0x28` |
+| Bar30 (MS5837-30BA) | `0x76` |
+| Celsius (TSYS01) | `0x77` |
+
+
+- Depth settings in `main.c`: `SURFACE_PRESSURE` (1050.25 mbar) and `WATER_DENSITY` (1000 kg/m³ fresh water, use 1025 kg/m³ for salt water).
+
+- Battery monitor divider: R1 = 100 kΩ, R2 = 18 kΩ (`BATTERY_MONITOR_R1/R2` in `main.c`). V<sub>batt</sub> = V<sub>ADC</sub> × (R1 + R2) / R2.
+
+- Enclosure thermistor: Vishay NTCLE100E3103JB0 (10 kΩ at 25 °C) with a 10 kΩ divider resistor.
+
 <hr>
 
 ## STM32 Configuration & Pins
-These are set in STM32CubeMX.
+These are set in STM32CubeMX (`CamosunROV_STM32.ioc`).
 
-The HCLK is set to 180MHz.
+The HCLK is set to 180 MHz (HSE 8 MHz → PLL). APB1 = 45 MHz (timers 90 MHz), APB2 = 90 MHz (timers 180 MHz).
 
 Programming Pins (SWD on PCB):
 | SWD Pin | STM32 Pin | Function | Notes |
@@ -56,24 +159,42 @@ Programming Pins (SWD on PCB):
 | 3 | GND | Ground | Debug/programming |
 | 4 | PA13 | SWDIO | Debug/programming |
 | 5 | NRST | Reset | Debug/programming |
-| 6 | PB3 | SWO (optional) | Trace/debug output |
+| 6 | PB3 | SWO (optional) | Trace/debug output (`printf`) |
 
 Pin configuration:
 | STM32 Pin | Function | Peripheral / AF | Notes |
 |:---:|:--------:|:----------------:|-------|
-| PA11 | Motor 1 PWM | TIM1_CH4 | Generates 300Hz Signal |
+| PA11 | Motor 1 PWM | TIM1_CH4 | ~300 Hz signal |
 | PA10 | Motor 2 PWM | TIM1_CH3 | |
 | PA9  | Motor 3 PWM | TIM1_CH2 | |
 | PA8  | Motor 4 PWM | TIM1_CH1 | |
-| PC9  | Motor 5 PWM | TIM8_CH4 | Generates 300Hz Signal |
+| PC9  | Motor 5 PWM | TIM8_CH4 | ~300 Hz signal |
 | PC8  | Motor 6 PWM | TIM8_CH3 | |
-| PA6 | Leak Sensor | TIM8 BKIN | auto terminates TIM8 PWM signals |
-| PB12 | Leak Sensor | TIM1 BKIN | auto terminates TIM1 PWM signals |
-| PB15 | Viewing Lights | TIM12_CH2 | Generates 1KHz Signal |
-| PA0 | Battery Monitor | ADC1_IN0 | Uses DMA |
-| PA1 | Internal Temperature | ADC1_IN1 | Uses DMA |
+| PB0  | Camera Tilt Servo PWM | TIM3_CH3 | ~50 Hz signal |
+| PA6  | Leak Sensor | TIM8_BKIN | auto terminates TIM8 PWM signals |
+| PB12 | Leak Sensor | TIM1_BKIN | auto terminates TIM1 PWM signals |
+| PC10 | UART TX → Pi RX | UART4_TX | DMA1 Stream 4 |
+| PC11 | UART RX ← Pi TX | UART4_RX | DMA1 Stream 2, idle-line detection |
+| PB6  | I2C SCL | I2C1_SCL | BNO055, Bar30, TSYS01 |
+| PB7  | I2C SDA | I2C1_SDA | BNO055, Bar30, TSYS01 |
+| PA0  | Battery Monitor | ADC1_IN0 | Uses DMA |
+| PA1  | Internal Temperature | ADC1_IN1 | Uses DMA |
+| PC0  | Red LED | GPIO Output | |
+| PC1  | Green LED | GPIO Output | |
+| PC2  | Yellow LED | GPIO Output | |
+| PA2  | USART2_TX | USART2 | Configured, not used by firmware |
+| PA3  | USART2_RX | USART2 | Configured, not used by firmware |
+
+Timer configuration:
+| Timer | Use | Prescaler (PSC) | Period (ARR) | Output |
+|:---:|-----|:---:|:---:|-------|
+| TIM1 | Motors 1–4 | 180 | 3333 | ~300 Hz, ~1 µs per tick |
+| TIM8 | Motors 5–6 | 180 | 3333 | ~300 Hz, ~1 µs per tick |
+| TIM3 | Camera tilt servo | 90 | 20000 | ~50 Hz, ~1 µs per tick |
+| TIM2 | ADC trigger (TRGO) | 90 | 1000 | ~1 kHz |
 
 *Note:*<br>
-- *PA6 and PB12 are physically connected, hence a leak triggers HIGH on both.*  
-- *ADC sampling rate is controlled by TIM2, conversion rate is still controlled by APB1 frequency.*
-
+- *PA6 and PB12 are physically connected, hence a leak triggers HIGH on both.*
+- *ADC sampling rate is controlled by TIM2 (16 samples per channel are averaged), conversion rate is still controlled by the APB2 frequency.*
+- *The Pi's UART pins are 3.3 V logic, same as the STM32 — connect directly, TX ↔ RX crossed, with a common ground.*
+- *Viewing lights (PB15 / TIM12_CH2) have been removed from this configuration.*
