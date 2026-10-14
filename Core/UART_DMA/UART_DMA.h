@@ -62,8 +62,11 @@
  *               No range clamping is done in this protocol layer -- the
  *               motor and tilt control functions clamp their own inputs.
  *  leak:        live leak-sensor state, 0 = dry, 1 = water detected NOW.
- *  fault_flags: latched SystemState_t bit flags (SYS_STATE_FAULT_LEAK,
+ *  fault_flags: SystemState_t bit flags active RIGHT NOW (SYS_STATE_FAULT_LEAK,
  *               _IMU, _DEPTH, _TEMP, _UART), OR'ed together into one byte.
+ *               A bit clears when its fault recovers (except LEAK, which
+ *               stays set until a power cycle). While a sensor's bit is
+ *               set, its telemetry field holds a stale value; ignore it.
  *               Stored as uint8_t, since a combination of flags (e.g.
  *               LEAK | TEMP = 0x09) is not itself one of the enum's values.
  *
@@ -113,7 +116,7 @@ typedef struct {
 	int16_t roll_x100; /* BNO055 roll x100, ~-9000..9000 */
 	int16_t pitch_x100; /* BNO055 pitch x100, ~-18000..18000 */
 	uint8_t leak; /* 0 = dry, 1 = leak detected right now */
-	uint8_t fault_flags; /* latched SystemState_t flags, OR'ed */
+	uint8_t fault_flags; /* live SystemState_t flags, OR'ed (LEAK stays set) */
 } telem_data_t;
 
 /* Additive checksum: sum of `len` bytes at `data`, mod 256. */

@@ -23,13 +23,13 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include "my_utils.h"
-#include "status_led.h"
 #include "motors.h"
 #include "thermistor.h"
 #include "bno055_stm32.h"
 #include "bar30.h"
 #include "TSYS01.h"
 #include "UART_DMA.h"
+#include "status_led.h"
 
 /* USER CODE END Includes */
 
@@ -39,18 +39,19 @@
 /**
  * @brief Top-level system state.
  *
- * Tracks whether the system is operating normally or has latched a fault.
- * Once a fault state is entered, it remains latched until explicitly
- * cleared/reset (e.g. via a fault-reset routine), even if the underlying
- * condition clears.
+ * Fault bits. These are LIVE: a bit is set while its fault is present and
+ * cleared when it recovers (sensor answers again, Pi link comes back).
+ * The one exception is LEAK, which stays set until a power cycle because the
+ * emergency shutdown can't be undone without a reset.
+ * The same bits are sent to the Pi as fault_flags in every telemetry frame.
  */
 typedef enum {
-	SYS_STATE_FAULT_NONE = 0,        // Normal operation; no faults latched
-	SYS_STATE_FAULT_LEAK = (1 << 0), // Fault latched: leak detected
-	SYS_STATE_FAULT_IMU = (1 << 1), // Fault latched: IMU failure or invalid data
-	SYS_STATE_FAULT_DEPTH = (1 << 2), // Fault latched: depth sensor failure or out-of-range reading
-	SYS_STATE_FAULT_TEMP = (1 << 3), // Fault latched: temperature sensor failure or out-of-range reading
-	SYS_STATE_FAULT_UART = (1 << 4), // Fault latched: UART communication failure
+	SYS_STATE_FAULT_NONE = 0,        // Normal operation; no faults
+	SYS_STATE_FAULT_LEAK = (1 << 0), // Leak detected (latched until power cycle)
+	SYS_STATE_FAULT_IMU = (1 << 1), // IMU not responding / reset itself (live)
+	SYS_STATE_FAULT_DEPTH = (1 << 2), // Depth sensor not responding (live)
+	SYS_STATE_FAULT_TEMP = (1 << 3), // Water temperature sensor not responding (live)
+	SYS_STATE_FAULT_UART = (1 << 4), // Pi link lost: command timeout after link was up (live)
 } SystemState_t;
 
 /**
@@ -139,22 +140,11 @@ static uint8_t failsafeActive = 1; // 1 = thrusters stopped by the command timeo
 static uint8_t linkEstablished = 0; // 1 = at least one valid command received since boot
 
 /*
- * Faults reported to the Pi (LATCHED: once set, a bit stays set until a
- * power cycle). Sources: system_state_t (LEAK, set by the break ISR),
- * sensorFaults (IMU/DEPTH/TEMP, merged every 20 ms) and apply_failsafe()
- * (UART). The LEDs use the live state instead, so they clear when a fault
- * recovers but the Pi still sees that it happened. Only touched from the
- * main loop, so no interrupt race. A future fault-reset routine must clear
- * this too.
- */
-static uint8_t reportedFaults = SYS_STATE_FAULT_NONE;
-
-/*
  * I2C sensor faults that are active RIGHT NOW (IMU / DEPTH / TEMP bits only).
- * Unlike reportedFaults this is live: a bit is set after SENSOR_FAIL_LIMIT
- * failed reads in a row, and cleared again when the sensor is successfully
- * re-initialized (tried every SENSOR_RETRY_MS). Drives the yellow LED.
- * Every set bit is also latched into reportedFaults for the Pi.
+ * A bit is set after SENSOR_FAIL_LIMIT failed reads in a row, and cleared
+ * again when the sensor is successfully re-initialized (tried every
+ * SENSOR_RETRY_MS). Drives the yellow LED and is sent to the Pi through
+ * get_faults(). Only touched from the main loop, so no interrupt race.
  */
 static uint8_t sensorFaults = SYS_STATE_FAULT_NONE;
 static uint8_t imuFailCount = 0;   // consecutive failed reads, per sensor
@@ -188,7 +178,7 @@ static void apply_command(const cmd_data_t *cmd);
 static void apply_failsafe(void);
 static void read_sensors(void);
 static void send_telemetry(void);
-static void print_faults(const char *label, uint8_t faults);
+static void print_faults(uint8_t faults);
 
 static bool imu_start(void);
 static bool imu_reconfigure(void);
@@ -197,7 +187,8 @@ static bool celsius_start(void);
 static void sensor_read_result(uint8_t faultBit, bool ok, uint8_t *failCount);
 static void sensor_health_check(void);
 static led_link_state_t get_link_state(void);
-static uint8_t get_live_faults(void);
+static uint8_t get_faults(void);
+static bool leak_detected(void);
 
 /* USER CODE END PFP */
 
@@ -309,7 +300,6 @@ int main(void) {
 	}
 
 	/* ---- UART link to the Pi start-up, runs once ---- */
-	reportedFaults = (uint8_t) system_state_t | sensorFaults; // keep the boot-time faults
 	proto_start_rx(&huart4);                   // start listening for commands
 	uint32_t lastTelemTick = HAL_GetTick();
 	uint32_t lastSensorCheckTick = HAL_GetTick();
@@ -318,8 +308,7 @@ int main(void) {
 	uint32_t Debug_lastPrint = 0;
 
 	// 4. Switch from the boot sequence to the status table.
-	status_led_update((reportedFaults & SYS_STATE_FAULT_LEAK) != 0U,
-			get_link_state(), sensorFaults != 0U);
+	status_led_update(leak_detected(), get_link_state(), sensorFaults != 0U);
 
 	/* USER CODE END 2 */
 
@@ -331,10 +320,8 @@ int main(void) {
 		/* USER CODE BEGIN 3 */
 
 		/* ---- 1. Faults ------------------------------------------------ */
-		// Merge in anything the break ISR (or boot code) has set.
-		reportedFaults |= (uint8_t) system_state_t;
-
-		if (reportedFaults & SYS_STATE_FAULT_LEAK) {
+		// LEAK is set by the break ISR and stays set until a power cycle.
+		if (leak_detected()) {
 			emergency_shutdown(); // idempotent: the shutdown sequence only runs once
 			// The Pi is told through telemetry (leak = 1, LEAK fault flag),
 			// which keeps being sent below.
@@ -369,7 +356,6 @@ int main(void) {
 		if ((HAL_GetTick() - lastTelemTick) >= TELEM_PERIOD_MS) {
 			lastTelemTick = HAL_GetTick();
 			read_sensors();
-			reportedFaults |= sensorFaults; // latch new sensor faults for the Pi
 			send_telemetry();
 		}
 
@@ -379,12 +365,11 @@ int main(void) {
 		if ((HAL_GetTick() - lastSensorCheckTick) >= SENSOR_RETRY_MS) {
 			lastSensorCheckTick = HAL_GetTick();
 			sensor_health_check();
-			reportedFaults |= sensorFaults;
 		}
 
 		/* ---- 3c. Status LEDs (solid patterns, see status_led.h) -------- */
-		status_led_update((reportedFaults & SYS_STATE_FAULT_LEAK) != 0U,
-				get_link_state(), sensorFaults != 0U);
+		status_led_update(leak_detected(), get_link_state(),
+				sensorFaults != 0U);
 
 		/* ---- 4. Debug print over SWO (uses the values read above) ------ */
 		if ((HAL_GetTick() - Debug_lastPrint) > DEBUG_PRINT_MS) {
@@ -411,8 +396,7 @@ int main(void) {
 			printf("Internal Temperature = %0.3f\n", internal_temperature);
 			printf("Water Temperature = %0.2f\n", water_temperature);
 			printf("Depth = %0.2f\n", depth);
-			print_faults("Faults now:     ", get_live_faults());
-			print_faults("Faults latched: ", reportedFaults);
+			print_faults(get_faults()); // same bits the Pi receives
 			printf("\n");
 
 			Debug_lastPrint = HAL_GetTick();
@@ -1117,8 +1101,8 @@ static void sensor_read_result(uint8_t faultBit, bool ok, uint8_t *failCount) {
  * @brief Runs every SENSOR_RETRY_MS from the main loop.
  *
  *  - Each faulted sensor is re-initialized. If that works, its fault is
- *    cleared (yellow LED off). The latched copy in reportedFaults stays set,
- *    so the Pi still knows it happened.
+ *    cleared: yellow LED off, and its bit drops out of fault_flags so the
+ *    Pi knows its data is valid again.
  *  - A working IMU has its operation mode checked. If the BNO055 browns out
  *    or resets, it still answers on I2C but comes back in CONFIG mode with
  *    frozen Euler angles, which a read check alone wouldn't catch.
@@ -1241,15 +1225,31 @@ static led_link_state_t get_link_state(void) {
 }
 
 /**
- * @brief Faults active right now (for the debug print): leak, live I2C
- *        sensor faults, and UART if the link is currently lost.
+ * @brief true once a leak has been detected (set by the break ISR or the
+ *        boot check). Stays true until a power cycle.
  */
-static uint8_t get_live_faults(void) {
-	uint8_t live = sensorFaults | (reportedFaults & SYS_STATE_FAULT_LEAK);
-	if (get_link_state() == LED_LINK_LOST) {
-		live |= SYS_STATE_FAULT_UART;
+static bool leak_detected(void) {
+	return (system_state_t & SYS_STATE_FAULT_LEAK) != 0U;
+}
+
+/**
+ * @brief Faults active right now. Sent to the Pi as fault_flags and shown
+ *        in the debug print. Every bit clears when its fault recovers,
+ *        except LEAK:
+ *          LEAK         - leak detected (stays set until power cycle)
+ *          IMU/DEPTH/TEMP - sensor currently faulted (sensorFaults)
+ *          UART         - Pi link currently lost (command timeout after the
+ *                         link was up; clears when commands resume)
+ */
+static uint8_t get_faults(void) {
+	uint8_t faults = sensorFaults;
+	if (leak_detected()) {
+		faults |= SYS_STATE_FAULT_LEAK;
 	}
-	return live;
+	if (get_link_state() == LED_LINK_LOST) {
+		faults |= SYS_STATE_FAULT_UART;
+	}
+	return faults;
 }
 
 /**
@@ -1316,7 +1316,7 @@ static int16_t to_i16_x100(float v) {
  * latched: TIM1/TIM8 BKIN has already cut their PWM outputs in hardware.
  */
 static void apply_command(const cmd_data_t *cmd) {
-	if (!(reportedFaults & SYS_STATE_FAULT_LEAK)) {
+	if (!leak_detected()) {
 		motor1(cmd->motor[0]);
 		motor2(cmd->motor[1]);
 		motor3(cmd->motor[2]);
@@ -1338,9 +1338,9 @@ static void apply_command(const cmd_data_t *cmd) {
  * Uses motorN(0) rather than motors_reinit(): motors_reinit() also re-enables
  * MOE and the break interrupt, which would undo a leak shutdown.
  *
- * Latches SYS_STATE_FAULT_UART, but only if the link was up before -- not
- * while waiting for the Pi to finish booting. Because it is latched, the Pi
- * still sees it in telemetry once the link recovers.
+ * The UART fault bit isn't stored here: get_faults() works it out from the
+ * link state, so it is set while the link is lost and clears when commands
+ * resume. (Not set while still waiting for the Pi to finish booting.)
  */
 static void apply_failsafe(void) {
 	motor1(0);
@@ -1349,26 +1349,20 @@ static void apply_failsafe(void) {
 	motor4(0);
 	motor5(0);
 	motor6(0);
-
-	if (linkEstablished) {
-		reportedFaults |= SYS_STATE_FAULT_UART;
-	}
 }
 
 /**
- * @brief Prints a fault mask by name over SWO, e.g.
- *        "Faults now:     0x09 [ LEAK TEMP ]" or "Faults now:     none".
+ * @brief Prints the current faults by name over SWO, e.g.
+ *        "Faults: 0x09 [ LEAK TEMP ]" or "Faults: none".
  *
- * Called twice per debug print: once with the live faults (what the LEDs
- * show) and once with the latched faults (what the Pi receives).
  * Names match SystemState_t (and FAULT_NAMES in UART_DMA.py on the Pi).
  */
-static void print_faults(const char *label, uint8_t faults) {
+static void print_faults(uint8_t faults) {
 	if (faults == SYS_STATE_FAULT_NONE) {
-		printf("%snone\r\n", label);
+		printf("Faults: none\r\n");
 		return;
 	}
-	printf("%s0x%02X [", label, faults);
+	printf("Faults: 0x%02X [", faults);
 	if (faults & SYS_STATE_FAULT_LEAK)  printf(" LEAK");
 	if (faults & SYS_STATE_FAULT_IMU)   printf(" IMU");
 	if (faults & SYS_STATE_FAULT_DEPTH) printf(" DEPTH");
@@ -1380,8 +1374,12 @@ static void print_faults(const char *label, uint8_t faults) {
 /**
  * @brief Packs the current sensor values and sends one telemetry frame.
  *
- * leak is taken from the latched LEAK fault (the leak sensor drives
- * TIM1/TIM8 BKIN, which is what sets that fault).
+ * leak is taken from the LEAK fault (the leak sensor drives TIM1/TIM8 BKIN,
+ * which is what sets that fault). fault_flags are the faults active right
+ * now (see get_faults()), so a sensor that recovers drops out of them.
+ *
+ * While a sensor is faulted its field keeps the last good value; the Pi
+ * should ignore that field while the sensor's fault bit is set.
  */
 static void send_telemetry(void) {
 	telem_data_t data;
@@ -1394,12 +1392,12 @@ static void send_telemetry(void) {
 	data.roll_x100 = to_i16_x100((float) imu_vec.y);    // y = roll
 	data.pitch_x100 = to_i16_x100((float) imu_vec.z);   // z = pitch
 	// leak = 1 if the LEAK fault bit is set, otherwise 0
-	if (reportedFaults & SYS_STATE_FAULT_LEAK) {
+	if (leak_detected()) {
 		data.leak = 1U;
 	} else {
 		data.leak = 0U;
 	}
-	data.fault_flags = reportedFaults;
+	data.fault_flags = get_faults();
 
 	proto_send_telem(&huart4, &data); // HAL_BUSY = previous frame still sending, skip this one
 }
