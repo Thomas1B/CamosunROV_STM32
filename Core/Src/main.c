@@ -1333,7 +1333,7 @@ static bool bar30_start(void) {
 	}
 	MS5837_SetSurfaceReference(&bar30, SURFACE_PRESSURE);
 	MS5837_SetFluidDensity(&bar30, WATER_DENSITY);
-	bar30.secondOrderCalculation = false; // enable second order calculation, compensates for water below 15C.
+	bar30.secondOrderCalculation = true; // enable second order calculation, compensates for water below 15C.
 	return true;
 }
 

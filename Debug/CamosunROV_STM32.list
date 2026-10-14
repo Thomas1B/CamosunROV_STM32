@@ -7528,9 +7528,9 @@ static bool bar30_start(void) {
  8003b10:	ed9f 0a07 	vldr	s0, [pc, #28]	@ 8003b30 <bar30_start+0x44>
  8003b14:	4804      	ldr	r0, [pc, #16]	@ (8003b28 <bar30_start+0x3c>)
  8003b16:	f7fe f99b 	bl	8001e50 <MS5837_SetFluidDensity>
-	bar30.secondOrderCalculation = false; // enable second order calculation, compensates for water below 15C.
+	bar30.secondOrderCalculation = true; // enable second order calculation, compensates for water below 15C.
  8003b1a:	4b03      	ldr	r3, [pc, #12]	@ (8003b28 <bar30_start+0x3c>)
- 8003b1c:	2200      	movs	r2, #0
+ 8003b1c:	2201      	movs	r2, #1
  8003b1e:	f883 2024 	strb.w	r2, [r3, #36]	@ 0x24
 	return true;
  8003b22:	2301      	movs	r3, #1
