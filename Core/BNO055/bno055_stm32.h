@@ -106,14 +106,19 @@ void bno055_writeData(uint8_t reg, uint8_t data) {
   // return;
 }
 
-void bno055_readData(uint8_t reg, uint8_t *data, uint8_t len) {
-  HAL_I2C_Master_Transmit(_bno055_i2c_port, BNO055_I2C_ADDR << 1, &reg, 1,
-                          100);
-  HAL_I2C_Master_Receive(_bno055_i2c_port, BNO055_I2C_ADDR << 1, data, len,
-                         100);
-  // HAL_I2C_Mem_Read(_bno055_i2c_port, BNO055_I2C_ADDR_LO<<1, reg,
-  // I2C_MEMADD_SIZE_8BIT, data, len, 100);
-}
+/*
+ * Returns true if both I2C transfers succeeded. Existing callers that ignore
+ * the result behave exactly as before; the main loop uses it (through
+ * bno055_readVector) to detect an IMU that stops responding.
+ */
+bool bno055_readData(uint8_t reg, uint8_t *data, uint8_t len) {
+  if (HAL_I2C_Master_Transmit(_bno055_i2c_port, BNO055_I2C_ADDR << 1, &reg, 1,
+                              100) != HAL_OK) {
+    return false;
+  }
+  return (HAL_I2C_Master_Receive(_bno055_i2c_port, BNO055_I2C_ADDR << 1, data,
+                                 len, 100) == HAL_OK);
+  }
 
 #ifdef __cplusplus
   }

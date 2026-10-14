@@ -281,9 +281,10 @@ enum bno055_axis_map_sign_t {
 };
 
 void bno055_writeData(uint8_t reg, uint8_t data);
-void bno055_readData(uint8_t reg, uint8_t *data, uint8_t len);
+bool bno055_readData(uint8_t reg, uint8_t *data, uint8_t len); // true = I2C read succeeded
 void bno055_delay(int time);
 
+void bno055_setPage(uint8_t page);
 void bno055_reset();
 bno055_opmode_t bno055_getOperationMode();
 void bno055_setOperationMode(bno055_opmode_t mode);
@@ -304,6 +305,7 @@ bno055_self_test_result_t bno055_getSelfTestResult();
 bno055_calibration_state_t bno055_getCalibrationState();
 bno055_calibration_data_t bno055_getCalibrationData();
 void bno055_setCalibrationData(bno055_calibration_data_t calData);
+bool bno055_readVector(uint8_t vec, bno055_vector_t *out); // checked read, false = I2C failure
 bno055_vector_t bno055_getVectorAccelerometer();
 bno055_vector_t bno055_getVectorMagnetometer();
 bno055_vector_t bno055_getVectorGyroscope();

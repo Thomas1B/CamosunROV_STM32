@@ -329,13 +329,28 @@ void bno055_setCalibrationData(bno055_calibration_data_t calData) {
  * 	   - BNO055_VECTOR_QUATERNION: Quaternion (w, x, y, z) with no units
  */
 bno055_vector_t bno055_getVector(uint8_t vec) {
+	bno055_vector_t xyz;
+	(void) bno055_readVector(vec, &xyz); // unchecked, same behaviour as before
+	return xyz;
+}
+
+/**
+ * @brief  Same as bno055_getVector(), but reports whether the I2C read worked.
+ *
+ * @param vec  Vector type (see bno055_getVector()).
+ * @param out  Where the scaled vector is written. On failure it is still
+ *             written, but holds whatever was in the buffer (don't use it).
+ * @retval true if the I2C read succeeded, false if the sensor didn't respond.
+ */
+bool bno055_readVector(uint8_t vec, bno055_vector_t *out) {
 	bno055_setPage(0);
-	uint8_t buffer[8];    // Quaternion need 8 bytes
+	uint8_t buffer[8] = { 0 };    // Quaternion need 8 bytes
+	bool ok;
 
 	if (vec == BNO055_VECTOR_QUATERNION)
-		bno055_readData(vec, buffer, 8);
+		ok = bno055_readData(vec, buffer, 8);
 	else
-		bno055_readData(vec, buffer, 6);
+		ok = bno055_readData(vec, buffer, 6);
 
 	double scale = 1;
 
@@ -365,7 +380,8 @@ bno055_vector_t bno055_getVector(uint8_t vec) {
 		xyz.z = (int16_t) ((buffer[5] << 8) | buffer[4]) / scale;
 	}
 
-	return xyz;
+	*out = xyz;
+	return ok;
 }
 
 /*

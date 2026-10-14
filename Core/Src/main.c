@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include "my_utils.h"
+#include "status_led.h"
 #include "motors.h"
 #include "thermistor.h"
 #include "bno055_stm32.h"
@@ -81,6 +82,10 @@ typedef enum {
 #define TELEM_PERIOD_MS  20U   // read sensors + send telemetry every 20 ms (50 Hz)
 #define DEBUG_PRINT_MS   1500U // SWO debug printf period (same as before)
 
+/* I2C sensor health (IMU, Bar30 depth, Celsius water temp) */
+#define SENSOR_FAIL_LIMIT 3U    // consecutive failed reads before a sensor is faulted (3 x 20 ms = 60 ms)
+#define SENSOR_RETRY_MS   1000U // how often faulted sensors are re-initialized, and the IMU mode is checked
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -134,14 +139,27 @@ static uint8_t failsafeActive = 1; // 1 = thrusters stopped by the command timeo
 static uint8_t linkEstablished = 0; // 1 = at least one valid command received since boot
 
 /*
- * Faults reported to the Pi. Kept separately from system_state_t because
- * emergency_shutdown() sets system_state_t = SYS_STATE_FAULT_LEAK, which
- * would erase any IMU/DEPTH/TEMP flags set at boot. Every loop merges
- * system_state_t into this, so nothing is lost. Only touched from the main
- * loop, so no interrupt race. A future fault-reset routine must clear this
- * too.
+ * Faults reported to the Pi (LATCHED: once set, a bit stays set until a
+ * power cycle). Sources: system_state_t (LEAK, set by the break ISR),
+ * sensorFaults (IMU/DEPTH/TEMP, merged every 20 ms) and apply_failsafe()
+ * (UART). The LEDs use the live state instead, so they clear when a fault
+ * recovers but the Pi still sees that it happened. Only touched from the
+ * main loop, so no interrupt race. A future fault-reset routine must clear
+ * this too.
  */
 static uint8_t reportedFaults = SYS_STATE_FAULT_NONE;
+
+/*
+ * I2C sensor faults that are active RIGHT NOW (IMU / DEPTH / TEMP bits only).
+ * Unlike reportedFaults this is live: a bit is set after SENSOR_FAIL_LIMIT
+ * failed reads in a row, and cleared again when the sensor is successfully
+ * re-initialized (tried every SENSOR_RETRY_MS). Drives the yellow LED.
+ * Every set bit is also latched into reportedFaults for the Pi.
+ */
+static uint8_t sensorFaults = SYS_STATE_FAULT_NONE;
+static uint8_t imuFailCount = 0;   // consecutive failed reads, per sensor
+static uint8_t depthFailCount = 0;
+static uint8_t tempFailCount = 0;
 
 /* USER CODE END PV */
 
@@ -170,7 +188,16 @@ static void apply_command(const cmd_data_t *cmd);
 static void apply_failsafe(void);
 static void read_sensors(void);
 static void send_telemetry(void);
-static void print_faults(uint8_t faults);
+static void print_faults(const char *label, uint8_t faults);
+
+static bool imu_start(void);
+static bool imu_reconfigure(void);
+static bool bar30_start(void);
+static bool celsius_start(void);
+static void sensor_read_result(uint8_t faultBit, bool ok, uint8_t *failCount);
+static void sensor_health_check(void);
+static led_link_state_t get_link_state(void);
+static uint8_t get_live_faults(void);
 
 /* USER CODE END PFP */
 
@@ -224,45 +251,40 @@ int main(void) {
 	__HAL_TIM_ENABLE_IT(&htim8, TIM_IT_BREAK);
 
 	if (system_state_t == SYS_STATE_FAULT_LEAK) {
-		HAL_GPIO_WritePin(RED_LED_GPIO_Port, RED_LED_Pin, GPIO_PIN_SET);
+		// Leak at power-up: skip the lamp test and green blinking, go
+		// straight to the LEAK pattern (all three on) and stay there.
+		status_led_show_leak();
 		emergency_shutdown();
 		while (1)
 			; // do nothing
 	} else {
-		// Flashing green to notify boot up starting
-		HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_SET);
-		HAL_Delay(250);
-		HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_RESET);
-		HAL_Delay(250);
-		HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_SET);
+		// Power-up LED sequence (see status_led.h):
+		status_led_lamp_test();  // 1. all three on ~1 s
+		status_led_boot_start(); // 2. green blink, then green stays on during sensor init
 		HAL_Delay(1000);
+
+		// Each sensor that fails to start is marked as faulted (yellow LED).
+		// It is retried every SENSOR_RETRY_MS from the main loop, so a sensor
+		// that is plugged in late, or recovers, clears its fault on its own.
 
 		// Setting BNO055 IMU device
 		bno055_assignI2C(&hi2c1); // Assign the I2C handle to the BNO055 IMU
-		if (bno055_setup()) {
-			// These needs to be here, since they write to device and can raise errors if called.
-			bno055_setOperationMode(BNO055_OPERATION_MODE_NDOF);
-			bno055_setCalibrationData(savedCalData);
-		} else {
-			system_state_t += SYS_STATE_FAULT_IMU;
+		if (!imu_start()) {
+			sensorFaults |= SYS_STATE_FAULT_IMU;
 		}
 
 		// Setting bar30 pressure sensor
 		MS5837_SetI2C(&bar30, &hi2c1); // // Assign the I2C handle to the Bar30
-		if (!MS5837_Init(&bar30)) {
-			system_state_t += SYS_STATE_FAULT_DEPTH;
-		}
-		// These dont need don't need in an else statement. They just write to vars, not the device. (BNO055 is different)
-		MS5837_SetSurfaceReference(&bar30, SURFACE_PRESSURE);
-		MS5837_SetFluidDensity(&bar30, WATER_DENSITY);
 		MS5837_SetOSR(&bar30, MS5837_OSR_256); // set the oversampling rate for the sensor
 		MS5837_SetModel(&bar30, MS5837_MODEL_30BA); // set the sensor model
-		bar30.secondOrderCalculation = false; // enable second order calculation, compensates for water below 15C.
+		if (!bar30_start()) {
+			sensorFaults |= SYS_STATE_FAULT_DEPTH;
+		}
 
 		// Setting Celsius (TSYS01) water temperature sensor, same I2C bus as the Bar30 (0x77 vs 0x76, no clash)
 		TSYS01_SetI2C(&celsius, &hi2c1); // Assign the I2C handle to the TSYS01
-		if (!TSYS01_Init(&celsius)) { // resets the sensor, reads + checksums its PROM coefficients
-			system_state_t += SYS_STATE_FAULT_TEMP;
+		if (!celsius_start()) {
+			sensorFaults |= SYS_STATE_FAULT_TEMP;
 		}
 
 		// Starting ADC DMA with timer
@@ -282,25 +304,22 @@ int main(void) {
 		// Initialize Camera tilt Servo
 		HAL_TIM_PWM_Start(SERVO_TIM, SERVO_CHANNEL);
 
-		// Flashing green LED to show boot up sequence is done.
-		for (int i = 0; i < 12; i++) {
-			HAL_GPIO_TogglePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin);
-			HAL_Delay(50);
-		}
+		// 3. Fast green flicker to show boot up sequence is done.
+		status_led_boot_done();
 	}
 
-	// TODO: add if statements to catch if sensors not working. no need to use while loops, just notify leds.
-//	if (has_fault(system_state_t, SYS_STATE_FAULT_DEPTH)) {
-//		HAL_GPIO_WritePin(YELLOW_LED_GPIO_Port, YELLOW_LED_Pin, GPIO_PIN_SET);
-//	}
-
 	/* ---- UART link to the Pi start-up, runs once ---- */
-	reportedFaults = (uint8_t) system_state_t; // keep the boot-time sensor faults
+	reportedFaults = (uint8_t) system_state_t | sensorFaults; // keep the boot-time faults
 	proto_start_rx(&huart4);                   // start listening for commands
 	uint32_t lastTelemTick = HAL_GetTick();
+	uint32_t lastSensorCheckTick = HAL_GetTick();
 	cmd_data_t lastAppliedCmd = { 0 }; // newest command applied, kept for the debug print
 
 	uint32_t Debug_lastPrint = 0;
+
+	// 4. Switch from the boot sequence to the status table.
+	status_led_update((reportedFaults & SYS_STATE_FAULT_LEAK) != 0U,
+			get_link_state(), sensorFaults != 0U);
 
 	/* USER CODE END 2 */
 
@@ -350,8 +369,22 @@ int main(void) {
 		if ((HAL_GetTick() - lastTelemTick) >= TELEM_PERIOD_MS) {
 			lastTelemTick = HAL_GetTick();
 			read_sensors();
+			reportedFaults |= sensorFaults; // latch new sensor faults for the Pi
 			send_telemetry();
 		}
+
+		/* ---- 3b. Sensor health, every 1 s ------------------------------ */
+		// Re-initializes faulted sensors (clears their fault if they answer)
+		// and checks the IMU hasn't silently reset itself.
+		if ((HAL_GetTick() - lastSensorCheckTick) >= SENSOR_RETRY_MS) {
+			lastSensorCheckTick = HAL_GetTick();
+			sensor_health_check();
+			reportedFaults |= sensorFaults;
+		}
+
+		/* ---- 3c. Status LEDs (solid patterns, see status_led.h) -------- */
+		status_led_update((reportedFaults & SYS_STATE_FAULT_LEAK) != 0U,
+				get_link_state(), sensorFaults != 0U);
 
 		/* ---- 4. Debug print over SWO (uses the values read above) ------ */
 		if ((HAL_GetTick() - Debug_lastPrint) > DEBUG_PRINT_MS) {
@@ -378,7 +411,8 @@ int main(void) {
 			printf("Internal Temperature = %0.3f\n", internal_temperature);
 			printf("Water Temperature = %0.2f\n", water_temperature);
 			printf("Depth = %0.2f\n", depth);
-			print_faults(system_state_t);
+			print_faults("Faults now:     ", get_live_faults());
+			print_faults("Faults latched: ", reportedFaults);
 			printf("\n");
 
 			Debug_lastPrint = HAL_GetTick();
@@ -941,8 +975,7 @@ void emergency_shutdown(void) {
 
 	HAL_ADC_Stop_DMA(&hadc1);   // stop battery/thermistor ADC sampling
 	HAL_TIM_Base_Stop(&htim2);  // stop the ADC trigger timer
-	HAL_GPIO_WritePin(GREEN_LED_GPIO_Port, GREEN_LED_Pin, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(RED_LED_GPIO_Port, RED_LED_Pin, GPIO_PIN_SET);
+	status_led_show_leak();     // LEAK = all three LEDs on
 
 }
 
@@ -1009,36 +1042,214 @@ float get_internal_temperature(void) {
 /**
  * @brief Refreshes the sensor variables.
  *
- * A sensor whose fault is latched is skipped, so a missing/failed I2C device
- * can't stall the loop with I2C timeouts every 20 ms.
+ * Every I2C read is checked. After SENSOR_FAIL_LIMIT failures in a row the
+ * sensor is marked faulted in sensorFaults (yellow LED) and its last good
+ * value is kept. A faulted sensor is skipped here, so a missing/failed I2C
+ * device can't stall the loop with I2C timeouts every 20 ms. It is retried
+ * once a second by sensor_health_check() instead.
  */
 static void read_sensors(void) {
 	battery_voltage = get_battery_voltage();
 	internal_temperature = get_internal_temperature();
 
-	if (!(reportedFaults & SYS_STATE_FAULT_DEPTH)) {
-		MS5837_Read(&bar30);
-		depth = MS5837_GetDepth(&bar30);
+	if (!(sensorFaults & SYS_STATE_FAULT_DEPTH)) {
+		bool ok = MS5837_Read(&bar30);
+		if (ok) {
+			depth = MS5837_GetDepth(&bar30);
+		}
+		sensor_read_result(SYS_STATE_FAULT_DEPTH, ok, &depthFailCount);
 	}
 
 	// Water temperature sensor (Celsius / TSYS01, separate device from the Bar30).
-	// Skipped if SYS_STATE_FAULT_TEMP is latched at boot.
+	// Skipped while SYS_STATE_FAULT_TEMP is active.
 	//
 	// Non-blocking: a conversion takes up to ~10 ms, and TSYS01_Read() would
 	// stall the loop for that long every 20 ms. Instead, each call reads the
 	// conversion started on the previous call (20 ms ago, so it's finished),
 	// then starts the next one. water_temperature is therefore one telemetry
 	// period (20 ms) old, which doesn't matter for water temperature.
-	if (!(reportedFaults & SYS_STATE_FAULT_TEMP)) {
-		if (celsius_converting && TSYS01_ReadResult(&celsius)) {
-			water_temperature = TSYS01_GetTemperature(&celsius);
+	if (!(sensorFaults & SYS_STATE_FAULT_TEMP)) {
+		bool ok = true;
+		if (celsius_converting) {
+			ok = TSYS01_ReadResult(&celsius);
+			if (ok) {
+				water_temperature = TSYS01_GetTemperature(&celsius);
+			}
 		}
 		celsius_converting = TSYS01_StartConversion(&celsius);
+		sensor_read_result(SYS_STATE_FAULT_TEMP, ok && celsius_converting,
+				&tempFailCount);
 	}
 
-	if (!(reportedFaults & SYS_STATE_FAULT_IMU)) {
-		imu_vec = bno055_getVectorEuler();
+	if (!(sensorFaults & SYS_STATE_FAULT_IMU)) {
+		bno055_vector_t v;
+		bool ok = bno055_readVector(BNO055_VECTOR_EULER, &v);
+		if (ok) {
+			imu_vec = v;
+		}
+		sensor_read_result(SYS_STATE_FAULT_IMU, ok, &imuFailCount);
 	}
+}
+
+/**
+ * @brief Counts consecutive failed reads for one sensor and faults it after
+ *        SENSOR_FAIL_LIMIT in a row. One good read resets the count, so a
+ *        single glitch on the bus doesn't light the yellow LED.
+ *
+ * @param faultBit   SYS_STATE_FAULT_IMU / _DEPTH / _TEMP
+ * @param ok         true if this read succeeded
+ * @param failCount  that sensor's consecutive-failure counter
+ */
+static void sensor_read_result(uint8_t faultBit, bool ok, uint8_t *failCount) {
+	if (ok) {
+		*failCount = 0;
+		return;
+	}
+	if (*failCount < SENSOR_FAIL_LIMIT) {
+		(*failCount)++;
+	}
+	if (*failCount >= SENSOR_FAIL_LIMIT) {
+		sensorFaults |= faultBit;
+	}
+}
+
+/**
+ * @brief Runs every SENSOR_RETRY_MS from the main loop.
+ *
+ *  - Each faulted sensor is re-initialized. If that works, its fault is
+ *    cleared (yellow LED off). The latched copy in reportedFaults stays set,
+ *    so the Pi still knows it happened.
+ *  - A working IMU has its operation mode checked. If the BNO055 browns out
+ *    or resets, it still answers on I2C but comes back in CONFIG mode with
+ *    frozen Euler angles, which a read check alone wouldn't catch.
+ *
+ * Blocking time: ~10 ms per Bar30/TSYS01 retry and ~35 ms for an IMU retry,
+ * but only when the sensor answers. A missing sensor NACKs straight away.
+ */
+static void sensor_health_check(void) {
+	if (sensorFaults & SYS_STATE_FAULT_DEPTH) {
+		if (bar30_start()) {
+			sensorFaults &= (uint8_t) ~SYS_STATE_FAULT_DEPTH;
+			depthFailCount = 0;
+		}
+	}
+
+	if (sensorFaults & SYS_STATE_FAULT_TEMP) {
+		if (celsius_start()) {
+			sensorFaults &= (uint8_t) ~SYS_STATE_FAULT_TEMP;
+			tempFailCount = 0;
+		}
+	}
+
+	if (sensorFaults & SYS_STATE_FAULT_IMU) {
+		if (imu_reconfigure()) {
+			sensorFaults &= (uint8_t) ~SYS_STATE_FAULT_IMU;
+			imuFailCount = 0;
+		}
+	} else {
+		uint8_t mode = 0;
+		if (!bno055_readData(BNO055_OPR_MODE, &mode, 1)) {
+			sensor_read_result(SYS_STATE_FAULT_IMU, false, &imuFailCount);
+		} else if (mode != BNO055_OPERATION_MODE_NDOF) {
+			sensorFaults |= SYS_STATE_FAULT_IMU; // reset itself, reconfigure next check
+		}
+	}
+}
+
+/**
+ * @brief Full IMU start-up, used once at boot. Includes the BNO055 reset
+ *        (~700 ms), so it must NOT be used from the main loop.
+ * @retval true if the IMU was found and configured.
+ */
+static bool imu_start(void) {
+	if (!bno055_setup()) {
+		return false;
+	}
+	// These needs to be here, since they write to device and can raise errors if called.
+	bno055_setOperationMode(BNO055_OPERATION_MODE_NDOF);
+	bno055_setCalibrationData(savedCalData);
+	return true;
+}
+
+/**
+ * @brief IMU recovery used by the main loop. Same as imu_start() but without
+ *        the 700 ms reset, which would stall the loop longer than
+ *        CMD_TIMEOUT_MS. (~35 ms when the IMU answers.)
+ *
+ * HAL_I2C_IsDeviceReady() is checked first. It is quiet when the IMU is
+ * missing, whereas bno055_writeData() prints an error on every failure.
+ *
+ * @retval true if the IMU answered and is back in NDOF mode.
+ */
+static bool imu_reconfigure(void) {
+	if (HAL_I2C_IsDeviceReady(&hi2c1, BNO055_I2C_ADDR << 1, 1, 5) != HAL_OK) {
+		return false;
+	}
+
+	bno055_setPage(0);
+	uint8_t id = 0;
+	if (!bno055_readData(BNO055_CHIP_ID, &id, 1) || id != BNO055_ID) {
+		return false;
+	}
+
+	bno055_setOperationMode(BNO055_OPERATION_MODE_NDOF);
+	bno055_setCalibrationData(savedCalData); // goes to CONFIG, writes, back to NDOF
+
+	uint8_t mode = 0;
+	return bno055_readData(BNO055_OPR_MODE, &mode, 1)
+			&& (mode == BNO055_OPERATION_MODE_NDOF);
+}
+
+/**
+ * @brief Initializes the Bar30 and applies our settings. Used at boot and
+ *        by the 1 s retry. MS5837_Init() resets the surface reference, fluid
+ *        density and second-order flag to its defaults, so they are set
+ *        again here every time. (OSR and model are kept by Init.)
+ * @retval true if the Bar30 answered and its PROM checksum was good.
+ */
+static bool bar30_start(void) {
+	if (!MS5837_Init(&bar30)) {
+		return false;
+	}
+	MS5837_SetSurfaceReference(&bar30, SURFACE_PRESSURE);
+	MS5837_SetFluidDensity(&bar30, WATER_DENSITY);
+	bar30.secondOrderCalculation = false; // enable second order calculation, compensates for water below 15C.
+	return true;
+}
+
+/**
+ * @brief Initializes the Celsius (TSYS01) sensor. Used at boot and by the
+ *        1 s retry. Resets the sensor, reads + checksums its PROM.
+ * @retval true if the sensor answered and its PROM checksum was good.
+ */
+static bool celsius_start(void) {
+	celsius_converting = false; // any conversion in progress is lost on reset
+	return TSYS01_Init(&celsius);
+}
+
+/**
+ * @brief Pi link state for the LEDs, from the command-timeout flags.
+ */
+static led_link_state_t get_link_state(void) {
+	if (!linkEstablished) {
+		return LED_LINK_WAITING;
+	}
+	if (failsafeActive) {
+		return LED_LINK_LOST;
+	}
+	return LED_LINK_CONNECTED;
+}
+
+/**
+ * @brief Faults active right now (for the debug print): leak, live I2C
+ *        sensor faults, and UART if the link is currently lost.
+ */
+static uint8_t get_live_faults(void) {
+	uint8_t live = sensorFaults | (reportedFaults & SYS_STATE_FAULT_LEAK);
+	if (get_link_state() == LED_LINK_LOST) {
+		live |= SYS_STATE_FAULT_UART;
+	}
+	return live;
 }
 
 /**
@@ -1145,17 +1356,19 @@ static void apply_failsafe(void) {
 }
 
 /**
- * @brief Prints the latched faults by name over SWO, e.g.
- *        "Faults: 0x09 [LEAK TEMP]" or "Faults: none".
+ * @brief Prints a fault mask by name over SWO, e.g.
+ *        "Faults now:     0x09 [ LEAK TEMP ]" or "Faults now:     none".
  *
+ * Called twice per debug print: once with the live faults (what the LEDs
+ * show) and once with the latched faults (what the Pi receives).
  * Names match SystemState_t (and FAULT_NAMES in UART_DMA.py on the Pi).
  */
-static void print_faults(uint8_t faults) {
+static void print_faults(const char *label, uint8_t faults) {
 	if (faults == SYS_STATE_FAULT_NONE) {
-		printf("Faults: none\r\n");
+		printf("%snone\r\n", label);
 		return;
 	}
-	printf("Faults: 0x%02X [", faults);
+	printf("%s0x%02X [", label, faults);
 	if (faults & SYS_STATE_FAULT_LEAK)  printf(" LEAK");
 	if (faults & SYS_STATE_FAULT_IMU)   printf(" IMU");
 	if (faults & SYS_STATE_FAULT_DEPTH) printf(" DEPTH");
