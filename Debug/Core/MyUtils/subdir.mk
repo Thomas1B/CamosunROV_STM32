@@ -5,13 +5,16 @@
 
 # Add inputs and outputs from these tool invocations to the build variables 
 C_SRCS += \
-../Core/MyUtils/my_utils.c 
+../Core/MyUtils/my_utils.c \
+../Core/MyUtils/status_led.c 
 
 OBJS += \
-./Core/MyUtils/my_utils.o 
+./Core/MyUtils/my_utils.o \
+./Core/MyUtils/status_led.o 
 
 C_DEPS += \
-./Core/MyUtils/my_utils.d 
+./Core/MyUtils/my_utils.d \
+./Core/MyUtils/status_led.d 
 
 
 # Each subdirectory must supply rules for building sources it contributes
@@ -21,7 +24,7 @@ Core/MyUtils/%.o Core/MyUtils/%.su Core/MyUtils/%.cyclo: ../Core/MyUtils/%.c Cor
 clean: clean-Core-2f-MyUtils
 
 clean-Core-2f-MyUtils:
-	-$(RM) ./Core/MyUtils/my_utils.cyclo ./Core/MyUtils/my_utils.d ./Core/MyUtils/my_utils.o ./Core/MyUtils/my_utils.su
+	-$(RM) ./Core/MyUtils/my_utils.cyclo ./Core/MyUtils/my_utils.d ./Core/MyUtils/my_utils.o ./Core/MyUtils/my_utils.su ./Core/MyUtils/status_led.cyclo ./Core/MyUtils/status_led.d ./Core/MyUtils/status_led.o ./Core/MyUtils/status_led.su
 
 .PHONY: clean-Core-2f-MyUtils
 

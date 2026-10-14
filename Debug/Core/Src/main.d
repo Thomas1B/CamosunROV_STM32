@@ -35,7 +35,7 @@ Core/Src/main.o: ../Core/Src/main.c ../Core/Inc/main.h \
  ../Core/MyUtils/my_utils.h ../Core/Motors/motors.h \
  ../Core/Thermistor/thermistor.h ../Core/BNO055/bno055_stm32.h \
  ../Core/BNO055/bno055.h ../Core/Bar30/bar30.h ../Core/TSYS01/TSYS01.h \
- ../Core/UART_DMA/UART_DMA.h
+ ../Core/UART_DMA/UART_DMA.h ../Core/MyUtils/status_led.h
 ../Core/Inc/main.h:
 ../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal.h:
 ../Core/Inc/stm32f4xx_hal_conf.h:
@@ -78,3 +78,4 @@ Core/Src/main.o: ../Core/Src/main.c ../Core/Inc/main.h \
 ../Core/Bar30/bar30.h:
 ../Core/TSYS01/TSYS01.h:
 ../Core/UART_DMA/UART_DMA.h:
+../Core/MyUtils/status_led.h:

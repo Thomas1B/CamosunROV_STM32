@@ -1,0 +1,7 @@
+../Core/MyUtils/status_led.c:20:13:set_leds	16	static
+../Core/MyUtils/status_led.c:29:6:status_led_lamp_test	8	static
+../Core/MyUtils/status_led.c:36:6:status_led_boot_start	8	static
+../Core/MyUtils/status_led.c:44:6:status_led_boot_done	16	static
+../Core/MyUtils/status_led.c:52:6:status_led_show_leak	8	static
+../Core/MyUtils/status_led.c:56:9:status_led_pattern	24	static
+../Core/MyUtils/status_led.c:88:6:status_led_update	16	static
