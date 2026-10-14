@@ -57,7 +57,7 @@ Built with STM32CubeIDE / STM32CubeMX, firmware package **STM32Cube FW_F4 V1.28.
 | `Core/TSYS01/` | TSYS01 (Celsius) water temperature driver |
 | `Core/BNO055/` | BNO055 IMU driver |
 | `Core/Thermistor/` | NTC thermistor resistance → temperature (Steinhart-Hart) |
-| `Core/MyUtils/` | Helpers: value mapping, ADC averaging, fault-flag checks |
+| `Core/MyUtils/` | Helpers: value mapping, ADC averaging, fault-flag checks; status LED patterns (`status_led.c`) |
 
 <hr>
 
@@ -177,7 +177,12 @@ I2C devices (all on I2C1, 100 kHz):
 | Celsius (TSYS01) | `0x77` |
 
 
-- Depth settings in `main.c`: `SURFACE_PRESSURE` (1050.25 mbar) and `WATER_DENSITY` (1000 kg/m³ fresh water, use 1025 kg/m³ for salt water).
+**Depth sensor (Bar30) settings**, set once at boot in `main.c`:
+
+| Setting | Set with | Current value | Notes |
+|---------|----------|:---:|-------|
+| Surface reference | `MS5837_SetSurfaceReference()` | `SURFACE_PRESSURE` = 1050.25 mbar (105 025 Pa) | Pressure read as 0 m depth |
+| Second-order compensation | `bar30.secondOrderCalculation` | off | Set `true` for extra temperature correction below 20 °C |
 
 - Battery monitor divider: R1 = 100 kΩ, R2 = 18 kΩ (`BATTERY_MONITOR_R1/R2` in `main.c`). V<sub>batt</sub> = V<sub>ADC</sub> × (R1 + R2) / R2.
 
