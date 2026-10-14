@@ -127,16 +127,9 @@ bool MS5837_Init(MS5837_t *dev) {
 		return false;
 	}
 
-	/* Model default: only apply it if SetModel() hasn't already been called
-	 * on this dev. This is what lets SetModel() work whether it's called
-	 * before or after Init(). */
-	if (!dev->_model_set) {
-		dev->model = MS5837_MODEL_30BA; /* your Bar30 - default */
-	}
-
-	dev->surface_pressure_mbar = 1013.25f; /* standard atmosphere - default, override via SetSurfaceReference() */
-	dev->fluidDensity_kg_m3 = 1026; // default density is of average ocean water 1026 kg/m3
-	dev->secondOrderCalculation = false; /* first-order only by default - set true from main.c to enable */
+	/* Settings (OSR, model, surface reference, fluid density, second-order)
+	 * are NOT touched here. They are set once from main.c and kept, so
+	 * calling Init() again (e.g. a fault retry) doesn't undo them. */
 
 	return true;
 }
@@ -151,7 +144,6 @@ float MS5837_GetSurfaceReference(MS5837_t *dev) {
 
 void MS5837_SetModel(MS5837_t *dev, MS5837_Model_t model) {
 	dev->model = model;
-	dev->_model_set = true;
 }
 
 MS5837_Model_t MS5837_GetModel(MS5837_t *dev) {

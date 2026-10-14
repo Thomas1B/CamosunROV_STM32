@@ -185,7 +185,6 @@ static void print_faults(uint8_t faults);
 
 static bool imu_start(void);
 static bool imu_reconfigure(void);
-static bool bar30_start(void);
 static bool celsius_start(void);
 static void sensor_read_result(uint8_t faultBit, bool ok, uint8_t *failCount);
 static void sensor_health_check(void);
@@ -250,6 +249,9 @@ int main(void) {
 	MS5837_SetI2C(&bar30, &hi2c1); // Assign the I2C handle to the Bar30
 	MS5837_SetOSR(&bar30, MS5837_OSR_256); // set the oversampling rate for the sensor
 	MS5837_SetModel(&bar30, MS5837_MODEL_30BA); // set the sensor model
+	MS5837_SetSurfaceReference(&bar30, SURFACE_PRESSURE); // pressure read as 0 m depth
+	MS5837_SetFluidDensity(&bar30, WATER_DENSITY); // fresh or salt water
+	bar30.secondOrderCalculation = false; // true = enable second-order calculation, compensates for water below 20 C
 	TSYS01_SetI2C(&celsius, &hi2c1); // Assign the I2C handle to the TSYS01 (0x77, Bar30 is 0x76)
 
 	if (system_state_t == SYS_STATE_FAULT_LEAK) {
@@ -274,7 +276,7 @@ int main(void) {
 		}
 
 		// Setting bar30 pressure sensor
-		if (!bar30_start()) {
+		if (!MS5837_Init(&bar30)) {
 			sensorFaults |= SYS_STATE_FAULT_DEPTH;
 		}
 
@@ -1248,7 +1250,7 @@ static void sensor_read_result(uint8_t faultBit, bool ok, uint8_t *failCount) {
  */
 static void sensor_health_check(void) {
 	if (sensorFaults & SYS_STATE_FAULT_DEPTH) {
-		if (bar30_start()) {
+		if (MS5837_Init(&bar30)) {
 			sensorFaults &= (uint8_t) ~SYS_STATE_FAULT_DEPTH;
 			depthFailCount = 0;
 		}
@@ -1318,23 +1320,6 @@ static bool imu_reconfigure(void) {
 	uint8_t mode = 0;
 	return bno055_readData(BNO055_OPR_MODE, &mode, 1)
 			&& (mode == BNO055_OPERATION_MODE_NDOF);
-}
-
-/**
- * @brief Initializes the Bar30 and applies our settings. Used at boot and
- *        by the 1 s retry. MS5837_Init() resets the surface reference, fluid
- *        density and second-order flag to its defaults, so they are set
- *        again here every time. (OSR and model are kept by Init.)
- * @retval true if the Bar30 answered and its PROM checksum was good.
- */
-static bool bar30_start(void) {
-	if (!MS5837_Init(&bar30)) {
-		return false;
-	}
-	MS5837_SetSurfaceReference(&bar30, SURFACE_PRESSURE);
-	MS5837_SetFluidDensity(&bar30, WATER_DENSITY);
-	bar30.secondOrderCalculation = true; // enable second order calculation, compensates for water below 15C.
-	return true;
 }
 
 /**
