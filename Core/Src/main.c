@@ -244,10 +244,9 @@ int main(void) {
 	if (system_state_t == SYS_STATE_FAULT_LEAK) {
 		// Leak at power-up: skip the lamp test and green blinking, go
 		// straight to the LEAK pattern (all three on) and stay there.
-		status_led_show_leak();
+		// Then fall through so the UART link still starts and the Pi gets
+		// leak = 1 telemetry (sensor fields will be 0, they were never read).
 		emergency_shutdown();
-		while (1)
-			; // do nothing
 	} else {
 		// Power-up LED sequence (see status_led.h):
 		status_led_lamp_test();  // 1. all three on ~1 s
@@ -321,10 +320,23 @@ int main(void) {
 
 		/* ---- 1. Faults ------------------------------------------------ */
 		// LEAK is set by the break ISR and stays set until a power cycle.
+		// While leaking, ONLY the UART link and status LEDs run: commands are
+		// discarded, sensors are not read, no SWO debug print.
 		if (leak_detected()) {
 			emergency_shutdown(); // idempotent: the shutdown sequence only runs once
-			// The Pi is told through telemetry (leak = 1, LEAK fault flag),
-			// which keeps being sent below.
+
+			__disable_irq();
+			cmdReady = 0;         // drop any command from the Pi
+			__enable_irq();
+			proto_rx_keepalive(&huart4);
+
+			// Telemetry: leak = 1, LEAK flag, sensor fields frozen at last reading
+			if ((HAL_GetTick() - lastTelemTick) >= TELEM_PERIOD_MS) {
+				lastTelemTick = HAL_GetTick();
+				send_telemetry();
+			}
+			status_led_show_leak();
+			continue;
 		}
 
 		/* ---- 2. Commands from the Pi ---------------------------------- */
@@ -923,33 +935,34 @@ int __io_putchar(int ch) {
 	return ch;
 }
 
+
 /**
- * @brief  Latches the leak-fault state and shuts down non-essential
- *         peripherals: stops motors' PWM outputs are left running at their
- *         last duty cycle (see note below), stops the viewing light PWM,
- *         stops the battery/thermistor ADC+DMA sampling, and disables the
- *         TIM1/TIM8 break interrupts.
+ * @brief Takes a PWM pin away from its timer and holds it LOW as a plain GPIO
+ *        output. ODR is written first so the pin never glitches HIGH.
+ */
+static void pwm_pin_force_low(GPIO_TypeDef *port, uint16_t pins) {
+	GPIO_InitTypeDef g = { 0 };
+	HAL_GPIO_WritePin(port, pins, GPIO_PIN_RESET);
+	g.Pin = pins;
+	g.Mode = GPIO_MODE_OUTPUT_PP;
+	g.Pull = GPIO_NOPULL;
+	g.Speed = GPIO_SPEED_FREQ_LOW;
+	HAL_GPIO_Init(port, &g);
+}
+
+
+/**
+ * @brief  Leak shutdown: stops everything except the status LEDs and UART4.
+ *         Thruster and servo PWM stopped and pins held LOW, ADC + TIM2
+ *         stopped, I2C1 de-initialized, break and ADC DMA IRQs disabled.
  *
- * @note   Only ever called from the main loop (never from ISR context) —
- *         HAL_TIMEx_BreakCallback() only sets system_state_t; this function
- *         does the actual (non-ISR-safe) shutdown work.
+ * @note   Main loop only (the break ISR just latches the LEAK flag).
+ *         Runs once; later calls return immediately.
  *
- * @note   Idempotent via the emergency_shutdown_done flag: safe to call
- *         repeatedly (e.g. every main loop iteration while faulted) without
- *         re-running the shutdown sequence.
- *
- * @note   Disabling TIM_IT_BREAK here means a second leak event will NOT
- *         generate another interrupt while faulted. Any future fault-clear
- *         / reset routine MUST re-enable (and clear the pending flag on)
- *         TIM_IT_BREAK for htim1 and htim8, and must reset
- *         emergency_shutdown_done = false, or the system will silently stop
- *         detecting leaks after a reset.
- *
- * @retval None
+ * @note   Undo with emergency_recover(), not by clearing flags by hand,
+ *         or leak detection stays disabled.
  */
 void emergency_shutdown(void) {
-
-	// No need to stop Motor TIMs or PWMs. TIM1 and TIM8 BKIN handle that automatically.
 
 	if (emergency_shutdown_done) {
 		return;
@@ -957,10 +970,38 @@ void emergency_shutdown(void) {
 	emergency_shutdown_done = true;
 	system_state_t = SYS_STATE_FAULT_LEAK;
 
-	HAL_ADC_Stop_DMA(&hadc1);   // stop battery/thermistor ADC sampling
-	HAL_TIM_Base_Stop(&htim2);  // stop the ADC trigger timer
-	status_led_show_leak();     // LEAK = all three LEDs on
+	/* Thrusters: BKIN already cleared MOE, forcing all six outputs LOW in
+	 * hardware. These calls also stop the TIM1/TIM8 counters, stop software
+	 * (e.g. motors_reinit()) from re-enabling the outputs, and leave the HAL
+	 * channel state ready for a later restart. Pins are then held LOW as GPIO
+	 * so the ESCs see no pulses and stop. */
+	HAL_TIM_PWM_Stop(MOTOR1_TIM, MOTOR1_CHANNEL);
+	HAL_TIM_PWM_Stop(MOTOR2_TIM, MOTOR2_CHANNEL);
+	HAL_TIM_PWM_Stop(MOTOR3_TIM, MOTOR3_CHANNEL);
+	HAL_TIM_PWM_Stop(MOTOR4_TIM, MOTOR4_CHANNEL);
+	HAL_TIM_PWM_Stop(MOTOR5_TIM, MOTOR5_CHANNEL);
+	HAL_TIM_PWM_Stop(MOTOR6_TIM, MOTOR6_CHANNEL);
+	pwm_pin_force_low(GPIOA, GPIO_PIN_8 | GPIO_PIN_9 | GPIO_PIN_10 | GPIO_PIN_11); // TIM1 CH1-4
+	pwm_pin_force_low(GPIOC, GPIO_PIN_8 | GPIO_PIN_9);                              // TIM8 CH3-4
 
+	/* Camera tilt servo (TIM3 CH3, PB0): stop PWM, hold LOW -> servo goes limp. */
+	HAL_TIM_PWM_Stop(SERVO_TIM, SERVO_CHANNEL);
+	pwm_pin_force_low(GPIOB, GPIO_PIN_0);
+
+	/* Battery/thermistor ADC + its 1 kHz trigger timer. */
+	HAL_ADC_Stop_DMA(&hadc1);
+	HAL_TIM_Base_Stop(&htim2);
+
+	/* I2C sensors (IMU, Bar30, Celsius): the main loop no longer reads them. */
+	HAL_I2C_DeInit(&hi2c1);
+
+	/* Interrupts that are no longer needed. UART4, its DMA streams and
+	 * SysTick (HAL_GetTick for the telemetry period) stay enabled. */
+	HAL_NVIC_DisableIRQ(TIM1_BRK_TIM9_IRQn);
+	HAL_NVIC_DisableIRQ(TIM8_BRK_TIM12_IRQn);
+	HAL_NVIC_DisableIRQ(DMA2_Stream0_IRQn);  // ADC1 DMA
+
+	status_led_show_leak();     // LEAK = all three LEDs on
 }
 
 /**
@@ -1325,9 +1366,8 @@ static void apply_command(const cmd_data_t *cmd) {
 		motor6(cmd->motor[5]);
 
 
-		// Camera tilt (deci-degrees, e.g. -155 = -15.5 deg). Done outside the
-		// leak check on purpose: TIM3 is not on BKIN, and being able to aim the
-		// camera is useful while finding a leak. servo() clamps its own input.
+		// Camera tilt (deci-degrees, e.g. -155 = -15.5 deg). servo() clamps
+		// its own input. During a leak TIM3 is stopped by emergency_shutdown().
 		servo(cmd->tilt_dc);
 	}
 }
