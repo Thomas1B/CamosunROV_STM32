@@ -14,12 +14,17 @@ Built with STM32CubeIDE / STM32CubeMX, firmware package **STM32Cube FW_F4 V1.28.
 <hr>
 
 # TODO:
-- [ ] Status LEDs
-- [ ] Find each ESC's deadband range (all motors still use the default 1450 µs / 1550 µs onset values)
 - [ ] Test I2C Water Temperature Sensor firmware (waiting for sensor to arrive)
-- [ ] Finish Emergency Shutdown Function (yellow LED for sensor faults still commented out)
+- [ ] Test status LEDs on hardware (lamp test, boot sequence, each pattern in the LED table)
+- [ ] Finish Emergency Shutdown Function
 - [ ] Restart / fault-clear function (restarts PWM generation, ADC reads, re-enables BKIN interrupts, etc.)
-- [ ] Test camera tilt servo on hardware
+- [ ] Find each ESC's deadband range (all motors still use the default 1450 µs / 1550 µs onset values)
+- [ ] Full test of hardware prototype
+- [ ] Full Test on Custom on PCB
+- [x] UART to/from Pi
+- [X] Live I2C sensor fault detection + 1 s retry (code done)
+- [x] Live fault flags to the Pi (faults clear when they recover; only LEAK stays set)
+- [x] Test camera tilt servo on hardware
 
 <hr>
 
@@ -35,7 +40,7 @@ Built with STM32CubeIDE / STM32CubeMX, firmware package **STM32Cube FW_F4 V1.28.
 	- Orientation (heading, roll, pitch) — BNO055 IMU in NDOF mode
 	- Enclosure temperature — NTC thermistor on ADC
 	- Battery voltage — resistor divider on ADC
-- Latched fault flags reported to the Pi in every telemetry frame
+- Live fault flags reported to the Pi in every telemetry frame (clear when the fault recovers; LEAK stays set)
 - Status LEDs (red / yellow / green)
 - SWO debug output (`printf` → ITM) every 1.5 s
 
@@ -80,35 +85,62 @@ Full details are in `Core/UART_DMA/UART_DMA.h`.
 | 11–12 | roll_x100 | i16 | ° ×100 |
 | 13–14 | pitch_x100 | i16 | ° ×100 |
 | 15 | leak | u8 | 0 = dry, 1 = water detected now |
-| 16 | fault_flags | u8 | latched fault bits (see below) |
+| 16 | fault_flags | u8 | fault bits active now (see below) |
 | 17 | CHECKSUM | u8 | |
 
 Values outside the field range are clamped by the sender (i16: −327.68 … 327.67, u16: 0 … 655.35).
 
-**Fault flags** (latched until reset):
+**Fault flags** (live: a bit clears when its fault recovers, except LEAK, which stays set until a power cycle. While a sensor's bit is set, its telemetry field holds its last good value and should be ignored):
 | Bit | Value | Fault |
 |:---:|:---:|-------|
 | 0 | `0x01` | LEAK |
-| 1 | `0x02` | IMU (BNO055 failed to initialise) |
-| 2 | `0x04` | DEPTH (Bar30 failed to initialise) |
-| 3 | `0x08` | TEMP (TSYS01 failed to initialise) |
-| 4 | `0x10` | UART (command timeout after link was established) |
+| 1 | `0x02` | IMU (BNO055 not responding, or reset itself) |
+| 2 | `0x04` | DEPTH (Bar30 not responding) |
+| 3 | `0x08` | TEMP (TSYS01 not responding) |
+| 4 | `0x10` | UART (Pi link lost: command timeout after link was established) |
 
 <hr>
 
 ## Leak / Emergency Shutdown
 - The leak sensor drives the TIM1 and TIM8 break inputs (active HIGH). On a leak the hardware immediately forces all six thruster PWM outputs off — no software involved.
-- The break ISR only latches `SYS_STATE_FAULT_LEAK` and disables further break interrupts; `emergency_shutdown()` in the main loop then stops ADC sampling, turns the green LED off and the red LED on.
+- The break ISR only latches `SYS_STATE_FAULT_LEAK` and disables further break interrupts; `emergency_shutdown()` in the main loop then stops ADC sampling and turns all three LEDs on (LEAK pattern).
 - Telemetry keeps running so the Pi sees `leak = 1` and the LEAK fault flag.
 - The camera tilt servo (TIM3) is **not** on a break input, so the camera can still be aimed to look for the leak.
-- If a leak is present at boot, the board lights the red LED and halts.
+- If a leak is present at boot, the board turns all three LEDs on and halts.
 - Any future reset/fault-clear routine **must** re-enable and clear `TIM_IT_BREAK` on TIM1 and TIM8 and reset `emergency_shutdown_done`, otherwise leaks will no longer be detected.
 
 <hr>
 
 ## Status LEDs
-| LED | Pin | Meaning |
-|-----|:---:|---------|
+
+**Power-up** (the only time an LED blinks):
+1. Lamp test: all three on for ~1s
+2. Green blinks, then stays on while the sensors initialize
+3. Fast green flicker: boot finished
+4. Switch to the status table below
+
+If a leak is present at boot, the power-up sequence is skipped and all three LEDs stay on.
+
+| State | Green | Yellow | Red | Note |
+|-------|:---:|:---:|:---:|:---:|
+| Connected, sensors OK | ● | ○ | ○ |
+| Connected, I2C fault | ● | ● | ○ |
+| Waiting for Pi, sensors OK | ● | ○ | ● |
+| Waiting for Pi, I2C fault * | ○ | ● | ○ |
+| Link lost, sensors OK | ○ | ○ | ● |
+| Link lost, I2C fault | ○ | ● | ● |
+| **LEAK** | ● | ● | ● |
+| STM32 not running | ○ | ○ | ○ | Power is indicated by separate LEDs <br> connected to the 3V3 and 5V rails |
+
+● = on, ○ = off
+
+- \* Waiting + I2C fault would be all three on, which is LEAK, so it shows yellow alone.
+- LEAK overrides everything and stays on until a power cycle.
+- Sensor faults and link state are live: the LEDs clear when the fault recovers.
+- A sensor is faulted after 3 failed reads in a row (60 ms). Faulted sensors are re-initialized every 1 s; the IMU's operation mode is also checked every 1 s to catch it resetting itself.
+- "Waiting" = booted, no valid command from the Pi yet. "Link lost" = commands were received, then timed out (150 ms).
+- The SWO debug print shows which sensor is faulted, e.g. `Faults: 0x04 [ DEPTH ]`.
+- If the firmware hangs, the LEDs freeze on their last pattern. All off only means no power.
 
 
 <hr>
@@ -197,4 +229,3 @@ Timer configuration:
 - *PA6 and PB12 are physically connected, hence a leak triggers HIGH on both.*
 - *ADC sampling rate is controlled by TIM2 (16 samples per channel are averaged), conversion rate is still controlled by the APB2 frequency.*
 - *The Pi's UART pins are 3.3 V logic, same as the STM32 — connect directly, TX ↔ RX crossed, with a common ground.*
-- *Viewing lights (PB15 / TIM12_CH2) have been removed from this configuration.*
