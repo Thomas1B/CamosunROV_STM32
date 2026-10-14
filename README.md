@@ -66,13 +66,14 @@ UART4, 115200 bit/s, 8 data bits, no parity, 1 stop bit. All multi-byte values a
 Start byte = `0xAA`. Checksum = sum of all bytes between START and CHECKSUM, mod 256.<br>
 Full details are in `Core/UART_DMA/UART_DMA.h`.
 
-**Pi → STM32 command (10 bytes, 50 Hz):**
+**Pi → STM32 command (11 bytes, 50 Hz):**
 | Byte(s) | Field | Type | Units / Range |
 |:---:|-------|:---:|-------|
 | 0 | START | u8 | `0xAA` |
 | 1–6 | motor1 … motor6 | i8 | % throttle, −100 … 100 |
 | 7–8 | cam_tilt_dc | i16 | camera tilt ×10 (deci-degrees), 0 = level, + = up |
-| 9 | CHECKSUM | u8 | |
+| 9 | recover | u8 | 0 = normal, 1 = clear a leak shutdown (see below) |
+| 10 | CHECKSUM | u8 | |
 
 **STM32 → Pi telemetry (18 bytes, 50 Hz):**
 | Byte(s) | Field | Type | Units |
@@ -91,7 +92,7 @@ Full details are in `Core/UART_DMA/UART_DMA.h`.
 
 Values outside the field range are clamped by the sender (i16: −327.68 … 327.67, u16: 0 … 655.35).
 
-**Fault flags** (live: a bit clears when its fault recovers, except LEAK, which stays set until a power cycle. While a sensor's bit is set, its telemetry field holds its last good value and should be ignored):
+**Fault flags** (live: a bit clears when its fault recovers, except LEAK, which stays set until a recover command. While a sensor's bit is set, its telemetry field holds its last good value and should be ignored):
 | Bit | Value | Fault |
 |:---:|:---:|-------|
 | 0 | `0x01` | LEAK |
@@ -103,12 +104,17 @@ Values outside the field range are clamped by the sender (i16: −327.68 … 327
 <hr>
 
 ## Leak / Emergency Shutdown
-- The leak sensor drives the TIM1 and TIM8 break inputs (active HIGH). On a leak the hardware immediately forces all six thruster PWM outputs off — no software involved.
-- The break ISR only latches `SYS_STATE_FAULT_LEAK` and disables further break interrupts; `emergency_shutdown()` in the main loop then stops ADC sampling and turns all three LEDs on (LEAK pattern).
-- Telemetry keeps running so the Pi sees `leak = 1` and the LEAK fault flag.
-- The camera tilt servo (TIM3) is **not** on a break input, so the camera can still be aimed to look for the leak.
-- If a leak is present at boot, the board turns all three LEDs on and halts.
-- Any future reset/fault-clear routine **must** re-enable and clear `TIM_IT_BREAK` on TIM1 and TIM8 and reset `emergency_shutdown_done`, otherwise leaks will no longer be detected.
+- The leak sensor drives the TIM1 and TIM8 break inputs (PB12, PA6, active HIGH). On a leak the hardware immediately forces all six thruster PWM outputs off — no software involved.
+- The break ISR only latches `SYS_STATE_FAULT_LEAK` and disables further break interrupts. `emergency_shutdown()` in the main loop then stops everything except the status LEDs and UART4: thruster and camera-servo PWM stopped and pins held LOW, ADC + TIM2 stopped, I2C1 de-initialized, break and ADC DMA interrupts disabled. All three LEDs on (LEAK pattern).
+- Telemetry keeps running at 50 Hz so the Pi sees `leak = 1` and the LEAK fault flag. Sensor fields are frozen at their last reading (0 if the leak was present at boot).
+- Motor and tilt values from the Pi are ignored during a leak.
+- If a leak is present at boot, the board skips sensor start-up and goes straight to the shutdown state (UART still runs).
+
+### Recovery
+- The Pi sets `recover` = 1 in the command frame. It acts on the **0 → 1 change** only, so send 0 normally, then 1 (holding it at 1 is fine). To retry, send 0 again, then 1.
+- Refused while the leak sensor is still wet (PB12 or PA6 HIGH): nothing changes and the Pi keeps seeing `leak = 1`.
+- On success `emergency_recover()` restarts thruster PWM at 0 % and the servo at level, restarts the ADC, restarts I2C1 and re-initializes the sensors within 1 s (yellow LED until they answer), then re-arms leak detection.
+- Thrusters stay at 0 % until the Pi sends a new motor command. The ESCs may need a moment at neutral to re-arm.
 
 <hr>
 
@@ -136,7 +142,7 @@ If a leak is present at boot, the power-up sequence is skipped and all three LED
 ● = on, ○ = off
 
 - \* Waiting + I2C fault would be all three on, which is LEAK, so it shows yellow alone.
-- LEAK overrides everything and stays on until a power cycle.
+- LEAK overrides everything and stays on until a recover command.
 - Sensor faults and link state are live: the LEDs clear when the fault recovers.
 - A sensor is faulted after 3 failed reads in a row (60 ms). Faulted sensors are re-initialized every 1 s; the IMU's operation mode is also checked every 1 s to catch it resetting itself.
 - "Waiting" = booted, no valid command from the Pi yet. "Link lost" = commands were received, then timed out (150 ms).

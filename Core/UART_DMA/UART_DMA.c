@@ -12,11 +12,12 @@
  *    for complete, checksum-valid frames. The last valid frame in the chunk
  *    wins. Partial frames are discarded; nothing is carried between chunks.
  *
- *    Command frame (CMD_FRAME_SIZE = 10 bytes):
+ *    Command frame (CMD_FRAME_SIZE = 11 bytes):
  *      [0]      START          0xAA
  *      [1..6]   motor[0..5]    int8
  *      [7..8]   camera tilt    int16, little-endian
- *      [9]      checksum       8-bit sum of bytes [1..8]
+ *      [9]      recover        uint8, 0 = normal, 1 = clear leak shutdown
+ *      [10]     checksum       8-bit sum of bytes [1..9]
  *
  *  TX (STM32 -> Pi): telemetry frames, sent with HAL_UART_Transmit_DMA.
  *
@@ -95,7 +96,8 @@ uint8_t proto_checksum8(const uint8_t *data, uint16_t len) {
 /*
  * Unpack one command frame (START and checksum already validated).
  * frame layout: [0]=START [1..6]=motor[0..5]
- *               [7..8]=cam tilt (i16, little-endian) [9]=checksum
+ *               [7..8]=cam tilt (i16, little-endian) [9]=recover
+ *               [10]=checksum
  * No range clamping here: the motor/tilt control functions do their own.
  */
 static void proto_unpack_cmd_frame(const uint8_t *frame, cmd_data_t *out) {
@@ -107,6 +109,8 @@ static void proto_unpack_cmd_frame(const uint8_t *frame, cmd_data_t *out) {
 	/* Camera tilt: rebuild the 16-bit pattern (low | high << 8), then
 	 * reinterpret it as signed. */
 	out->tilt_dc = (int16_t) ((uint16_t) frame[7] | ((uint16_t) frame[8] << 8));
+
+	out->recover = frame[9]; /* 0 = normal, 1 = clear leak shutdown */
 }
 
 /*
@@ -117,11 +121,11 @@ static void proto_unpack_cmd_frame(const uint8_t *frame, cmd_data_t *out) {
  *   1. frame[0] must be the START byte (0xAA).
  *      If not, the checksum is skipped entirely (&& short-circuits), which
  *      keeps scanning past junk bytes fast.
- *   2. The checksum is recomputed over the 8 body bytes between START and
- *      the checksum byte (6 motors + 2 tilt bytes):
+ *   2. The checksum is recomputed over the 9 body bytes between START and
+ *      the checksum byte (6 motors + 2 tilt bytes + recover):
  *        &frame[1]           -> start right after START
- *        CMD_FRAME_SIZE - 2  -> 10 - START - CHECKSUM = 8 bytes
- *      and compared with frame[CMD_FRAME_SIZE - 1] (frame[9]), the checksum
+ *        CMD_FRAME_SIZE - 2  -> 11 - START - CHECKSUM = 9 bytes
+ *      and compared with frame[CMD_FRAME_SIZE - 1] (frame[10]), the checksum
  *      the Pi sent. A byte corrupted or lost in transit makes them differ.
  **
  * Note: A motor value of -86 is also 0xAA, so a false START can appear inside a
@@ -133,11 +137,11 @@ static uint8_t proto_frame_valid(const uint8_t *frame) {
 		return 0; /* not a frame start, skip the checksum */
 	}
 
-	/* Check 2: recompute the checksum over the 8 body bytes
-	 * (frame[1] to frame[8]: 6 motors + 2 tilt bytes). */
+	/* Check 2: recompute the checksum over the 9 body bytes
+	 * (frame[1] to frame[9]: 6 motors + 2 tilt bytes + recover). */
 	uint16_t body_len = CMD_FRAME_SIZE - 2; /* CMD_FRAME_SIZE - START - CHECKSUM*/
 	uint8_t computed_sum = proto_checksum8(&frame[1], body_len);
-	uint8_t received_sum = frame[CMD_FRAME_SIZE - 1]; /* frame[9] */
+	uint8_t received_sum = frame[CMD_FRAME_SIZE - 1]; /* frame[10] */
 
 	if (computed_sum != received_sum) {
 		return 0; /* corrupted or false START */

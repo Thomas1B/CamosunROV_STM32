@@ -41,13 +41,14 @@
  *
  * Fault bits. These are LIVE: a bit is set while its fault is present and
  * cleared when it recovers (sensor answers again, Pi link comes back).
- * The one exception is LEAK, which stays set until a power cycle because the
+ * The one exception is LEAK, which stays set until the Pi sends a recover
+ * command (leak sensor must be dry, see emergency_recover()), because the
  * emergency shutdown can't be undone without a reset.
  * The same bits are sent to the Pi as fault_flags in every telemetry frame.
  */
 typedef enum {
 	SYS_STATE_FAULT_NONE = 0,        // Normal operation; no faults
-	SYS_STATE_FAULT_LEAK = (1 << 0), // Leak detected (latched until power cycle)
+	SYS_STATE_FAULT_LEAK = (1 << 0), // Leak detected (latched until recover command)
 	SYS_STATE_FAULT_IMU = (1 << 1), // IMU not responding / reset itself (live)
 	SYS_STATE_FAULT_DEPTH = (1 << 2), // Depth sensor not responding (live)
 	SYS_STATE_FAULT_TEMP = (1 << 3), // Water temperature sensor not responding (live)
@@ -138,6 +139,7 @@ static volatile uint8_t cmdReady = 0; // 1 = latestCmd holds a command main hasn
 static volatile uint32_t lastCmdTick = 0;  // HAL tick of the last valid command
 static uint8_t failsafeActive = 1; // 1 = thrusters stopped by the command timeout
 static uint8_t linkEstablished = 0; // 1 = at least one valid command received since boot
+static uint8_t lastRecover = 0;     // recover byte of the previous command, for 0 -> 1 detection
 
 /*
  * I2C sensor faults that are active RIGHT NOW (IMU / DEPTH / TEMP bits only).
@@ -168,6 +170,7 @@ static void MX_TIM3_Init(void);
 /* USER CODE BEGIN PFP */
 
 void emergency_shutdown(void);
+bool emergency_recover(void);
 float get_battery_voltage(void);
 float get_internal_temperature(void);
 void bno055_check_connection(void);
@@ -241,6 +244,14 @@ int main(void) {
 	__HAL_TIM_ENABLE_IT(&htim1, TIM_IT_BREAK); // <-- enable the break interrupt
 	__HAL_TIM_ENABLE_IT(&htim8, TIM_IT_BREAK);
 
+	// Give each sensor driver its I2C handle and settings. No bus traffic here,
+	// so it is done even on a leak at boot: emergency_recover() needs it.
+	bno055_assignI2C(&hi2c1); // Assign the I2C handle to the BNO055 IMU
+	MS5837_SetI2C(&bar30, &hi2c1); // Assign the I2C handle to the Bar30
+	MS5837_SetOSR(&bar30, MS5837_OSR_256); // set the oversampling rate for the sensor
+	MS5837_SetModel(&bar30, MS5837_MODEL_30BA); // set the sensor model
+	TSYS01_SetI2C(&celsius, &hi2c1); // Assign the I2C handle to the TSYS01 (0x77, Bar30 is 0x76)
+
 	if (system_state_t == SYS_STATE_FAULT_LEAK) {
 		// Leak at power-up: skip the lamp test and green blinking, go
 		// straight to the LEAK pattern (all three on) and stay there.
@@ -258,21 +269,16 @@ int main(void) {
 		// that is plugged in late, or recovers, clears its fault on its own.
 
 		// Setting BNO055 IMU device
-		bno055_assignI2C(&hi2c1); // Assign the I2C handle to the BNO055 IMU
 		if (!imu_start()) {
 			sensorFaults |= SYS_STATE_FAULT_IMU;
 		}
 
 		// Setting bar30 pressure sensor
-		MS5837_SetI2C(&bar30, &hi2c1); // // Assign the I2C handle to the Bar30
-		MS5837_SetOSR(&bar30, MS5837_OSR_256); // set the oversampling rate for the sensor
-		MS5837_SetModel(&bar30, MS5837_MODEL_30BA); // set the sensor model
 		if (!bar30_start()) {
 			sensorFaults |= SYS_STATE_FAULT_DEPTH;
 		}
 
-		// Setting Celsius (TSYS01) water temperature sensor, same I2C bus as the Bar30 (0x77 vs 0x76, no clash)
-		TSYS01_SetI2C(&celsius, &hi2c1); // Assign the I2C handle to the TSYS01
+		// Setting Celsius (TSYS01) water temperature sensor
 		if (!celsius_start()) {
 			sensorFaults |= SYS_STATE_FAULT_TEMP;
 		}
@@ -319,15 +325,31 @@ int main(void) {
 		/* USER CODE BEGIN 3 */
 
 		/* ---- 1. Faults ------------------------------------------------ */
-		// LEAK is set by the break ISR and stays set until a power cycle.
-		// While leaking, ONLY the UART link and status LEDs run: commands are
-		// discarded, sensors are not read, no SWO debug print.
+		// LEAK is set by the break ISR and stays set until a recover command.
+		// While leaking, ONLY the UART link and status LEDs run: motor/tilt
+		// values are ignored, sensors are not read, no SWO debug print.
 		if (leak_detected()) {
 			emergency_shutdown(); // idempotent: the shutdown sequence only runs once
 
+			cmd_data_t rcmd;
+			uint8_t gotCmd = 0;
 			__disable_irq();
-			cmdReady = 0;         // drop any command from the Pi
+			if (cmdReady) {
+				rcmd = latestCmd;
+				cmdReady = 0;
+				gotCmd = 1;
+			}
 			__enable_irq();
+
+			// Recover only when the recover byte goes 0 -> 1 (not while it is
+			// held at 1). emergency_recover() refuses if the sensor is still wet.
+			if (gotCmd) {
+				uint8_t risingEdge = (rcmd.recover == 1U) && (lastRecover == 0U);
+				lastRecover = rcmd.recover;
+				if (risingEdge && emergency_recover()) {
+					continue; // back to normal operation from the next pass
+				}
+			}
 			proto_rx_keepalive(&huart4);
 
 			// Telemetry: leak = 1, LEAK flag, sensor fields frozen at last reading
@@ -353,6 +375,7 @@ int main(void) {
 		__enable_irq();
 
 		if (haveCmd) {
+			lastRecover = cmd.recover; // so a 1 held from before a leak can't trigger recovery
 			failsafeActive = 0;
 			linkEstablished = 1;
 			apply_command(&cmd);
@@ -959,8 +982,8 @@ static void pwm_pin_force_low(GPIO_TypeDef *port, uint16_t pins) {
  * @note   Main loop only (the break ISR just latches the LEAK flag).
  *         Runs once; later calls return immediately.
  *
- * @note   Undo with emergency_recover(), not by clearing flags by hand,
- *         or leak detection stays disabled.
+ * @note   Undone by emergency_recover() (Pi sends recover = 1), not by
+ *         clearing flags by hand, or leak detection stays disabled.
  */
 void emergency_shutdown(void) {
 
@@ -1002,6 +1025,78 @@ void emergency_shutdown(void) {
 	HAL_NVIC_DisableIRQ(DMA2_Stream0_IRQn);  // ADC1 DMA
 
 	status_led_show_leak();     // LEAK = all three LEDs on
+}
+
+/**
+ * @brief  Undoes emergency_shutdown() when the Pi sends recover = 1.
+ *         Thrusters and servo restart at neutral, ADC and I2C sensors
+ *         restart, leak detection is re-armed.
+ *
+ * @note   Main loop only. Refused (returns false, nothing changes) while
+ *         either BKIN pin (PB12 = TIM1, PA6 = TIM8) still reads HIGH = wet.
+ *
+ * @retval true if recovered, false if the leak sensor is still wet.
+ */
+bool emergency_recover(void) {
+	if (!emergency_shutdown_done) {
+		return true; // nothing to undo
+	}
+
+	/* 1. Leak sensor must be dry. BKIN is active HIGH. */
+	if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_12) == GPIO_PIN_SET
+			|| HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_6) == GPIO_PIN_SET) {
+		return false;
+	}
+
+	/* 2. Thrusters + servo: load 0 % throttle and centre tilt BEFORE the pins
+	 *    go back to the timers, so the first pulse out is neutral. */
+	apply_failsafe();               // motor1..6 = 0 % (neutral pulse)
+	servo(0);                       // camera level
+	HAL_TIM_MspPostInit(&htim1);    // PA8-PA11 back to TIM1 (undo pwm_pin_force_low)
+	HAL_TIM_MspPostInit(&htim8);    // PC8-PC9 back to TIM8
+	HAL_TIM_MspPostInit(&htim3);    // PB0 back to TIM3
+	HAL_TIM_PWM_Start(MOTOR1_TIM, MOTOR1_CHANNEL); // also sets MOE on TIM1/TIM8
+	HAL_TIM_PWM_Start(MOTOR2_TIM, MOTOR2_CHANNEL);
+	HAL_TIM_PWM_Start(MOTOR3_TIM, MOTOR3_CHANNEL);
+	HAL_TIM_PWM_Start(MOTOR4_TIM, MOTOR4_CHANNEL);
+	HAL_TIM_PWM_Start(MOTOR5_TIM, MOTOR5_CHANNEL);
+	HAL_TIM_PWM_Start(MOTOR6_TIM, MOTOR6_CHANNEL);
+	HAL_TIM_PWM_Start(SERVO_TIM, SERVO_CHANNEL);
+
+	/* 3. Battery/thermistor ADC + its trigger timer. */
+	HAL_NVIC_ClearPendingIRQ(DMA2_Stream0_IRQn);
+	HAL_NVIC_EnableIRQ(DMA2_Stream0_IRQn);
+	HAL_ADC_Start_DMA(&hadc1, (uint32_t*) adc1_raw_buffer,
+	ADC1_NUM_CHANNELS * ADC1_SAMPLES_PER_CHANNEL);
+	HAL_TIM_Base_Start(&htim2);
+
+	/* 4. I2C sensors: restart I2C1 and mark all three faulted, so
+	 *    sensor_health_check() re-initializes them within SENSOR_RETRY_MS. */
+	MX_I2C1_Init();
+	celsius_converting = false;
+	imuFailCount = 0;
+	depthFailCount = 0;
+	tempFailCount = 0;
+	sensorFaults = SYS_STATE_FAULT_IMU | SYS_STATE_FAULT_DEPTH
+			| SYS_STATE_FAULT_TEMP;
+
+	/* 5. State. Thrusters stay at 0 % until the Pi sends a new command. */
+	failsafeActive = 1;
+	emergency_shutdown_done = false;
+	system_state_t = SYS_STATE_FAULT_NONE;
+
+	/* 6. Re-arm leak detection LAST, so a new leak can't be overwritten by
+	 *    the state reset above. */
+	__HAL_TIM_CLEAR_FLAG(&htim1, TIM_FLAG_BREAK);
+	__HAL_TIM_CLEAR_FLAG(&htim8, TIM_FLAG_BREAK);
+	__HAL_TIM_ENABLE_IT(&htim1, TIM_IT_BREAK);
+	__HAL_TIM_ENABLE_IT(&htim8, TIM_IT_BREAK);
+	HAL_NVIC_ClearPendingIRQ(TIM1_BRK_TIM9_IRQn);
+	HAL_NVIC_ClearPendingIRQ(TIM8_BRK_TIM12_IRQn);
+	HAL_NVIC_EnableIRQ(TIM1_BRK_TIM9_IRQn);
+	HAL_NVIC_EnableIRQ(TIM8_BRK_TIM12_IRQn);
+
+	return true;
 }
 
 /**
@@ -1267,7 +1362,7 @@ static led_link_state_t get_link_state(void) {
 
 /**
  * @brief true once a leak has been detected (set by the break ISR or the
- *        boot check). Stays true until a power cycle.
+ *        boot check). Stays true until emergency_recover() succeeds.
  */
 static bool leak_detected(void) {
 	return (system_state_t & SYS_STATE_FAULT_LEAK) != 0U;
@@ -1277,7 +1372,7 @@ static bool leak_detected(void) {
  * @brief Faults active right now. Sent to the Pi as fault_flags and shown
  *        in the debug print. Every bit clears when its fault recovers,
  *        except LEAK:
- *          LEAK         - leak detected (stays set until power cycle)
+ *          LEAK         - leak detected (stays set until recover command)
  *          IMU/DEPTH/TEMP - sensor currently faulted (sensorFaults)
  *          UART         - Pi link currently lost (command timeout after the
  *                         link was up; clears when commands resume)

@@ -8,7 +8,7 @@
  *  Raspberry Pi (UART4, 115200 8N1, DMA in both directions).
  *
  *  Declares:
- *    - Frame constants: PROTO_START_BYTE, CMD_FRAME_SIZE (10),
+ *    - Frame constants: PROTO_START_BYTE, CMD_FRAME_SIZE (11),
  *      TELEM_FRAME_SIZE (18), PROTO_RX_DMA_SIZE (64)
  *    - cmd_data_t   : decoded command frame (Pi -> STM32)
  *    - telem_data_t : telemetry values to send (STM32 -> Pi)
@@ -30,8 +30,8 @@
  *  How reception works:
  *    - DMA receives into a 64-byte buffer; the CPU never touches individual
  *      bytes while they arrive.
- *    - The Pi sends one 10-byte command frame every 20 ms (50 Hz). A frame
- *      takes ~0.87 ms on the wire at 115200 bit/s, so there is ~19 ms of
+ *    - The Pi sends one 11-byte command frame every 20 ms (50 Hz). A frame
+ *      takes ~0.95 ms on the wire at 115200 bit/s, so there is ~19 ms of
  *      silence after each one.
  *    - The UART hardware raises an IDLE event once the line has been quiet
  *      for one character time (~87 us). HAL then stops the DMA and calls
@@ -48,9 +48,9 @@
  * ==========================================================================
  *  Wire formats
  *
- *  Pi -> STM32 (command), 10 bytes:
- *    [ START ][ motor1..motor6 ][ cam_tilt_dc ][ CHECKSUM ]
- *       1 B        6x 1 B         2 B (i16)       1 B
+ *  Pi -> STM32 (command), 11 bytes:
+ *    [ START ][ motor1..motor6 ][ cam_tilt_dc ][ recover ][ CHECKSUM ]
+ *       1 B        6x 1 B         2 B (i16)      1 B (u8)     1 B
  *
  *  STM32 -> Pi (telemetry), 18 bytes:
  *    [ START ][ depth_x100 ][ water_temp_x100 ][ battery_x100 ][ inside_temp_x100 ]
@@ -61,11 +61,14 @@
  *  cam_tilt_dc: camera tilt x10 (deci-degrees), 0 = level, + = up.
  *               No range clamping is done in this protocol layer -- the
  *               motor and tilt control functions clamp their own inputs.
+ *  recover:     0 = normal, 1 = clear a leak shutdown. Acted on only when it
+ *               changes 0 -> 1, and only if the leak sensor is dry; otherwise
+ *               ignored. The Pi should send 0 the rest of the time.
  *  leak:        live leak-sensor state, 0 = dry, 1 = water detected NOW.
  *  fault_flags: SystemState_t bit flags active RIGHT NOW (SYS_STATE_FAULT_LEAK,
  *               _IMU, _DEPTH, _TEMP, _UART), OR'ed together into one byte.
  *               A bit clears when its fault recovers (except LEAK, which
- *               stays set until a power cycle). While a sensor's bit is
+ *               stays set until a recover command). While a sensor's bit is
  *               set, its telemetry field holds a stale value; ignore it.
  *               Stored as uint8_t, since a combination of flags (e.g.
  *               LEAK | TEMP = 0x09) is not itself one of the enum's values.
@@ -97,7 +100,7 @@
 
 #define PROTO_START_BYTE   0xAA
 
-#define CMD_FRAME_SIZE     10   /* START + 6 motors + tilt(2) + checksum */
+#define CMD_FRAME_SIZE     11   /* START + 6 motors + tilt(2) + recover + checksum */
 #define TELEM_FRAME_SIZE   18   /* START + 7x 2-byte fields + leak + faults + checksum */
 
 #define PROTO_RX_DMA_SIZE  64   /* DMA chunk buffer; > several frames */
@@ -105,6 +108,7 @@
 typedef struct {
 	int8_t motor[6]; /* -100..100 (%), one per thruster */
 	int16_t tilt_dc; /* camera tilt x10, deci-degrees */
+	uint8_t recover; /* 0 = normal, 1 = clear leak shutdown (on 0 -> 1 change) */
 } cmd_data_t;
 
 typedef struct {
