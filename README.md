@@ -1,6 +1,6 @@
 # CamosunROV STM32
 
-This is the repository for the STM32 board used in the Camosun College ROV project.
+This is the repository for the STM32 board used in the CamosunROV project.
 It contains the firmware and related resources for the STM32 microcontroller that controls the ROV's motors and sensors.
 
 The STM32 chip used is the STM32F446RE, which is a high-performance ARM Cortex-M4F microcontroller.<br>
