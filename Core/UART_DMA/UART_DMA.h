@@ -9,7 +9,7 @@
  *
  *  Declares:
  *    - Frame constants: PROTO_START_BYTE, CMD_FRAME_SIZE (11),
- *      TELEM_FRAME_SIZE (18), PROTO_RX_DMA_SIZE (64)
+ *      TELEM_FRAME_SIZE (20), PROTO_RX_DMA_SIZE (64)
  *    - cmd_data_t   : decoded command frame (Pi -> STM32)
  *    - telem_data_t : telemetry values to send (STM32 -> Pi)
  *    - RX functions : proto_start_rx, proto_rx_event_handler,
@@ -52,9 +52,11 @@
  *    [ START ][ motor1..motor6 ][ cam_tilt_dc ][ recover ][ CHECKSUM ]
  *       1 B        6x 1 B         2 B (i16)      1 B (u8)     1 B
  *
- *  STM32 -> Pi (telemetry), 18 bytes:
- *    [ START ][ depth_x100 ][ water_temp_x100 ][ battery_x100 ][ inside_temp_x100 ]
- *       1 B      2 B (i16)       2 B (i16)          2 B (u16)        2 B (i16)
+ *  STM32 -> Pi (telemetry), 20 bytes:
+ *    [ START ][ pressure_x10 ][ depth_x100 ][ water_temp_x100 ][ battery_x100 ]
+ *       1 B      2 B (u16)       2 B (i16)       2 B (i16)          2 B (u16)
+ *    [ inside_temp_x100 ]
+ *       2 B (i16)
  *    [ heading_x100 ][ roll_x100 ][ pitch_x100 ][ leak ][ fault_flags ][ CHECKSUM ]
  *       2 B (u16)      2 B (i16)    2 B (i16)    1 B (u8)   1 B (u8)       1 B
  *
@@ -64,6 +66,10 @@
  *  recover:     0 = normal, 1 = clear a leak shutdown. Acted on only when it
  *               changes 0 -> 1, and only if the leak sensor is dry; otherwise
  *               ignored. The Pi should send 0 the rest of the time.
+ *  pressure_x10: absolute Bar30 pressure in kPa x10 (0.1 kPa steps, which
+ *               is numerically the same as hPa / mbar). Raw sensor reading,
+ *               NOT minus the surface reference, so ~1013 at the surface.
+ *               0.1 kPa = 100 Pa ~= 1 cm of water.
  *  leak:        live leak-sensor state, 0 = dry, 1 = water detected NOW.
  *  fault_flags: SystemState_t bit flags active RIGHT NOW (SYS_STATE_FAULT_LEAK,
  *               _IMU, _DEPTH, _TEMP, _UART), OR'ed together into one byte.
@@ -74,13 +80,15 @@
  *               LEAK | TEMP = 0x09) is not itself one of the enum's values.
  *
  *  All multi-byte values little-endian. Telemetry measurements are scaled
- *  x100 (2 decimal places, e.g. 12.34 m -> 1234). Camera tilt is scaled x10
+ *  x100 (2 decimal places, e.g. 12.34 m -> 1234), EXCEPT pressure, which is
+ *  kPa x10 (e.g. 101.3 kPa -> 1013). Camera tilt is scaled x10
  *  (deci-degrees); motors are plain percent (-100..100).
  *
- *  Telemetry ranges that fit the 16-bit fields at x100 (values outside are
- *  clamped to the limit by the sender, see to_i16_x100()/to_u16_x100()):
- *    i16 fields: -327.68 .. 327.67   (depth m, temps degC, roll/pitch deg)
- *    u16 fields:    0.00 .. 655.35   (battery V, heading deg)
+ *  Telemetry ranges that fit the 16-bit fields (values outside are clamped
+ *  to the limit by the sender, see to_i16_x100()/to_u16_x100()/to_u16_x10()):
+ *    i16 fields x100: -327.68 .. 327.67   (depth m, temps degC, roll/pitch deg)
+ *    u16 fields x100:    0.00 .. 655.35   (battery V, heading deg)
+ *    u16 field  x10 :     0.0 .. 6553.5   (pressure kPa; Bar30 max ~3000 kPa)
  *  CHECKSUM = sum of all bytes between START and CHECKSUM, mod 256.
  *
  * ==========================================================================
@@ -101,7 +109,7 @@
 #define PROTO_START_BYTE   0xAA
 
 #define CMD_FRAME_SIZE     11   /* START + 6 motors + tilt(2) + recover + checksum */
-#define TELEM_FRAME_SIZE   18   /* START + 7x 2-byte fields + leak + faults + checksum */
+#define TELEM_FRAME_SIZE   20   /* START + 8x 2-byte fields + leak + faults + checksum */
 
 #define PROTO_RX_DMA_SIZE  64   /* DMA chunk buffer; > several frames */
 
@@ -112,6 +120,7 @@ typedef struct {
 } cmd_data_t;
 
 typedef struct {
+	uint16_t pressure_x10; /* absolute pressure, kPa x10 (= hPa), ~1013 at surface */
 	int16_t depth_x100; /* depth x100, centimetres, 0-30000 (0-300.00 m) */
 	int16_t water_temp_x100; /* water temperature x100, 0.01 degC */
 	uint16_t battery_x100; /* battery voltage x100, 0.01 V */
@@ -171,7 +180,7 @@ uint32_t proto_get_cmd_checksum_errors(void);
  */
 void proto_rx_keepalive(UART_HandleTypeDef *huart);
 
-/* Packs telemetry into a ready-to-send 18-byte frame. */
+/* Packs telemetry into a ready-to-send 20-byte frame. */
 void proto_build_telem_frame(const telem_data_t *data,
 		uint8_t txBuf[TELEM_FRAME_SIZE]);
 

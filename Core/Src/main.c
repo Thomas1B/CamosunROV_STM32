@@ -130,6 +130,7 @@ float battery_voltage; // var to store battery voltage
 float internal_temperature; // var to store internal temperature
 float water_temperature; // var to store water temperature
 float depth; // var to store depth
+float pressure_kpa; // var to store absolute pressure from the Bar30, kPa
 
 static bool emergency_shutdown_done = false;
 
@@ -176,6 +177,7 @@ float get_internal_temperature(void);
 void bno055_check_connection(void);
 
 static uint16_t to_u16_x100(float v);
+static uint16_t to_u16_x10(float v);
 static int16_t to_i16_x100(float v);
 static void apply_command(const cmd_data_t *cmd);
 static void apply_failsafe(void);
@@ -432,6 +434,7 @@ int main(void) {
 			printf("Battery Voltage = %0.3f\n", battery_voltage);
 			printf("Internal Temperature = %0.3f\n", internal_temperature);
 			printf("Water Temperature = %0.2f\n", water_temperature);
+			printf("Pressure = %0.1f kPa\n", pressure_kpa);
 			printf("Depth = %0.2f\n", depth);
 			print_faults(get_faults()); // same bits the Pi receives
 			printf("\n");
@@ -1178,6 +1181,7 @@ static void read_sensors(void) {
 		bool ok = MS5837_Read(&bar30);
 		if (ok) {
 			depth = MS5837_GetDepth(&bar30);
+			pressure_kpa = bar30.pressure_mbar / 10.0f; // absolute, 1 kPa = 10 mbar
 		}
 		sensor_read_result(SYS_STATE_FAULT_DEPTH, ok, &depthFailCount);
 	}
@@ -1376,7 +1380,7 @@ static uint8_t get_faults(void) {
 /**
  * @brief Converts a float to an unsigned x100 integer for the telemetry frame.
  *
- * Every telemetry value is sent as a whole number scaled by 100, so two
+ * Most telemetry values are sent as whole numbers scaled by 100, so two
  * decimal places survive without sending a float over UART. The Pi divides
  * by 100.0 to get the real value back.
  *
@@ -1391,6 +1395,29 @@ static uint8_t get_faults(void) {
  */
 static uint16_t to_u16_x100(float v) {
 	float s = v * 100.0f + 0.5f;
+	if (s <= 0.0f) {
+		return 0U;
+	}
+	if (s >= (float) UINT16_MAX) {
+		return UINT16_MAX;
+	}
+	return (uint16_t) s;
+}
+
+/**
+ * @brief Converts a float to an unsigned x10 integer for the telemetry frame.
+ *
+ * Same as to_u16_x100() but scaled by 10. Used only for pressure_x10, since
+ * pressure in kPa x100 would overflow 16 bits (Bar30 reads up to ~3000 kPa).
+ * 0.1 kPa steps = 100 Pa ~= 1 cm of water, same resolution as depth_x100.
+ *
+ * @note  Clamped to 0.0 .. 6553.5.
+ *
+ * @param  v  Value in real units, e.g. 101.33 (kPa).
+ * @return    v x 10, rounded, e.g. 101.33 -> 1013.
+ */
+static uint16_t to_u16_x10(float v) {
+	float s = v * 10.0f + 0.5f;
 	if (s <= 0.0f) {
 		return 0U;
 	}
@@ -1504,6 +1531,7 @@ static void print_faults(uint8_t faults) {
 static void send_telemetry(void) {
 	telem_data_t data;
 
+	data.pressure_x10 = to_u16_x10(pressure_kpa); // absolute, kPa x10 (= hPa)
 	data.depth_x100 = to_i16_x100(depth);
 	data.water_temp_x100 = to_i16_x100(water_temperature);
 	data.battery_x100 = to_u16_x100(battery_voltage);

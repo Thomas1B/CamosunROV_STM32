@@ -21,18 +21,19 @@
  *
  *  TX (STM32 -> Pi): telemetry frames, sent with HAL_UART_Transmit_DMA.
  *
- *    Telemetry frame (TELEM_FRAME_SIZE = 18 bytes), 16-bit fields little-endian:
+ *    Telemetry frame (TELEM_FRAME_SIZE = 20 bytes), 16-bit fields little-endian:
  *      [0]      START          0xAA
- *      [1..2]   depth          int16,  0.01 m (centimetres)
- *      [3..4]   water temp     int16,  0.01 degC
- *      [5..6]   battery        uint16, 0.01 V
- *      [7..8]   inside temp    int16,  0.01 degC
- *      [9..10]  heading        uint16, 0.01 deg
- *      [11..12] roll           int16,  0.01 deg
- *      [13..14] pitch          int16,  0.01 deg
- *      [15]     leak           uint8
- *      [16]     fault flags    uint8
- *      [17]     checksum       8-bit sum of bytes [1..16]
+ *      [1..2]   pressure       uint16, 0.1 kPa (= hPa), absolute
+ *      [3..4]   depth          int16,  0.01 m (centimetres)
+ *      [5..6]   water temp     int16,  0.01 degC
+ *      [7..8]   battery        uint16, 0.01 V
+ *      [9..10]  inside temp    int16,  0.01 degC
+ *      [11..12] heading        uint16, 0.01 deg
+ *      [13..14] roll           int16,  0.01 deg
+ *      [15..16] pitch          int16,  0.01 deg
+ *      [17]     leak           uint8
+ *      [18]     fault flags    uint8
+ *      [19]     checksum       8-bit sum of bytes [1..18]
  *
  *  Usage:
  *    - Call proto_start_rx() once after the UART is initialised.
@@ -307,16 +308,17 @@ static void put_u16(uint8_t *dst, uint16_t v) {
  *
  *   Byte   Field            Unit
  *   0      start byte       PROTO_START_BYTE
- *   1-2    depth            0.01 m (centimetres), signed
- *   3-4    water temp       0.01 °C, signed
- *   5-6    battery          0.01 V
- *   7-8    inside temp      0.01 °C, signed
- *   9-10   heading          0.01 degree
- *   11-12  roll             0.01 degree, signed
- *   13-14  pitch            0.01 degree, signed
- *   15     leak             leak flag
- *   16     fault flags      bit field
- *   17     checksum         over bytes 1-16 (start byte not included)
+ *   1-2    pressure         0.1 kPa (= hPa), absolute
+ *   3-4    depth            0.01 m (centimetres), signed
+ *   5-6    water temp       0.01 °C, signed
+ *   7-8    battery          0.01 V
+ *   9-10   inside temp      0.01 °C, signed
+ *   11-12  heading          0.01 degree
+ *   13-14  roll             0.01 degree, signed
+ *   15-16  pitch            0.01 degree, signed
+ *   17     leak             leak flag
+ *   18     fault flags      bit field
+ *   19     checksum         over bytes 1-18 (start byte not included)
  *
  * Signed fields are cast to uint16_t so their two's complement bit pattern
  * is sent unchanged. The receiver must cast them back to int16_t to recover
@@ -325,16 +327,17 @@ static void put_u16(uint8_t *dst, uint16_t v) {
 void proto_build_telem_frame(const telem_data_t *data,
 		uint8_t buf[TELEM_FRAME_SIZE]) {
 	buf[0] = PROTO_START_BYTE;
-	put_u16(&buf[1], (uint16_t) data->depth_x100); /* two's complement bits */
-	put_u16(&buf[3], (uint16_t) data->water_temp_x100);
-	put_u16(&buf[5], data->battery_x100);
-	put_u16(&buf[7], (uint16_t) data->inside_temp_x100);
-	put_u16(&buf[9], data->heading_x100);
-	put_u16(&buf[11], (uint16_t) data->roll_x100);
-	put_u16(&buf[13], (uint16_t) data->pitch_x100);
-	buf[15] = data->leak;
-	buf[16] = data->fault_flags;
-	buf[17] = proto_checksum8(&buf[1], TELEM_FRAME_SIZE - 2);
+	put_u16(&buf[1], data->pressure_x10);
+	put_u16(&buf[3], (uint16_t) data->depth_x100); /* two's complement bits */
+	put_u16(&buf[5], (uint16_t) data->water_temp_x100);
+	put_u16(&buf[7], data->battery_x100);
+	put_u16(&buf[9], (uint16_t) data->inside_temp_x100);
+	put_u16(&buf[11], data->heading_x100);
+	put_u16(&buf[13], (uint16_t) data->roll_x100);
+	put_u16(&buf[15], (uint16_t) data->pitch_x100);
+	buf[17] = data->leak;
+	buf[18] = data->fault_flags;
+	buf[19] = proto_checksum8(&buf[1], TELEM_FRAME_SIZE - 2);
 }
 
 /*
