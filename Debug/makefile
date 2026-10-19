@@ -67,8 +67,8 @@ all: main-build
 main-build: CamosunROV_STM32.elf secondary-outputs
 
 # Tool invocations
-CamosunROV_STM32.elf CamosunROV_STM32.map: $(OBJS) $(USER_OBJS) C:\Users\thoma\STM32CubeIDE\workspace_2.1.1\CamosunROV_STM32\STM32F446RETX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "CamosunROV_STM32.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\thoma\STM32CubeIDE\workspace_2.1.1\CamosunROV_STM32\STM32F446RETX_FLASH.ld" --specs=nosys.specs -Wl,-Map="CamosunROV_STM32.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -u _printf_float -Wl,--start-group -lc -lm -Wl,--end-group
+CamosunROV_STM32.elf CamosunROV_STM32.map: $(OBJS) $(USER_OBJS) C:\Users\C0550524\Capstone\CamosunROV_STM32\STM32F446RETX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "CamosunROV_STM32.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\C0550524\Capstone\CamosunROV_STM32\STM32F446RETX_FLASH.ld" --specs=nosys.specs -Wl,-Map="CamosunROV_STM32.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -u _printf_float -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 
