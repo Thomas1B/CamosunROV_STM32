@@ -257,16 +257,16 @@ int main(void) {
 	TSYS01_SetI2C(&celsius, &hi2c1); // Assign the I2C handle to the TSYS01 (0x77, Bar30 is 0x76)
 
 	if (system_state_t == SYS_STATE_FAULT_LEAK) {
-		// Leak at power-up: skip the lamp test and green blinking, go
-		// straight to the LEAK pattern (all three on) and stay there.
+		// Leak at power-up: skip the lamp test and boot sequence, go
+		// straight to the LEAK pattern (red only, solid) and stay there.
 		// Then fall through so the UART link still starts and the Pi gets
 		// leak = 1 telemetry (sensor fields will be 0, they were never read).
 		emergency_shutdown();
 	} else {
 		// Power-up LED sequence (see status_led.h):
 		status_led_lamp_test();  // 1. all three on ~1 s
-		status_led_boot_start(); // 2. green blink, then green stays on during sensor init
-		HAL_Delay(1000);
+		status_led_boot_start(); // 2. green on (solid) during sensor init
+		HAL_Delay(250);
 
 		// Each sensor that fails to start is marked as faulted (yellow LED).
 		// It is retried every SENSOR_RETRY_MS from the main loop, so a sensor
@@ -406,7 +406,7 @@ int main(void) {
 			sensor_health_check();
 		}
 
-		/* ---- 3c. Status LEDs (solid patterns, see status_led.h) -------- */
+		/* ---- 3c. Status LEDs (incl. 1 Hz blink, see status_led.h) ------ */
 		status_led_update(leak_detected(), get_link_state(),
 				sensorFaults != 0U);
 
@@ -1029,7 +1029,7 @@ void emergency_shutdown(void) {
 	HAL_NVIC_DisableIRQ(TIM8_BRK_TIM12_IRQn);
 	HAL_NVIC_DisableIRQ(DMA2_Stream0_IRQn);  // ADC1 DMA
 
-	status_led_show_leak();     // LEAK = all three LEDs on
+	status_led_show_leak();     // LEAK = red only, solid
 }
 
 /**
