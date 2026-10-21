@@ -9,7 +9,7 @@ Datasheet: [STM32F446RE Datasheet](https://www.st.com/en/microcontrollers-microp
 This custom STM32 board communicates with a Raspberry Pi 4 over UART (UART4, DMA in both directions).<br>
 The Pi sends thruster and camera-tilt commands at 50 Hz; the STM32 applies them and sends sensor telemetry back at 50 Hz.
 
-Built with STM32CubeIDE / STM32CubeMX, firmware package **STM32Cube FW_F4 V1.28.3**.
+Built with STM32CubeIDE 2.2.0 / STM32CubeMX 6.18.1, firmware package **STM32Cube FW_F4 V1.28.3**.
 
 <hr>
 
@@ -35,7 +35,7 @@ Built with STM32CubeIDE / STM32CubeMX, firmware package **STM32Cube FW_F4 V1.28.
 - Leak detection (hardware break input, latched fault)
 - Command timeout failsafe: thrusters stop if no valid command for 150 ms
 - Sensors:
-	- Depth / pressure — Blue Robotics Bar30 (MS5837-30BA)
+	- Depth and absolute pressure — Blue Robotics Bar30 (MS5837-30BA)
 	- Water temperature — Blue Robotics Celsius (TSYS01)
 	- Orientation (heading, roll, pitch) — BNO055 IMU in NDOF mode
 	- Enclosure temperature — NTC thermistor on ADC
@@ -74,22 +74,26 @@ Full details are in `Core/UART_DMA/UART_DMA.h`.
 | 9 | recover | u8 | 0 = normal, 1 = clear a leak shutdown (see below) |
 | 10 | CHECKSUM | u8 | |
 
-**STM32 → Pi telemetry (18 bytes, 50 Hz):**
+**STM32 → Pi telemetry (20 bytes, 50 Hz):**
 | Byte(s) | Field | Type | Units |
 |:---:|-------|:---:|-------|
 | 0 | START | u8 | `0xAA` |
-| 1–2 | depth_x100 | i16 | m ×100 |
-| 3–4 | water_temp_x100 | i16 | °C ×100 |
-| 5–6 | battery_x100 | u16 | V ×100 |
-| 7–8 | inside_temp_x100 | i16 | °C ×100 |
-| 9–10 | heading_x100 | u16 | ° ×100 (0 … 36000) |
-| 11–12 | roll_x100 | i16 | ° ×100 |
-| 13–14 | pitch_x100 | i16 | ° ×100 |
-| 15 | leak | u8 | 0 = dry, 1 = water detected now |
-| 16 | fault_flags | u8 | fault bits active now (see below) |
-| 17 | CHECKSUM | u8 | |
+| 1–2 | pressure_x10 | u16 | kPa ×10, absolute (≈ 1013 at the surface) |
+| 3–4 | depth_x100 | i16 | m ×100 |
+| 5–6 | water_temp_x100 | i16 | °C ×100 |
+| 7–8 | battery_x100 | u16 | V ×100 |
+| 9–10 | inside_temp_x100 | i16 | °C ×100 |
+| 11–12 | heading_x100 | u16 | ° ×100 (0 … 36000) |
+| 13–14 | roll_x100 | i16 | ° ×100 |
+| 15–16 | pitch_x100 | i16 | ° ×100 |
+| 17 | leak | u8 | 0 = dry, 1 = water detected now |
+| 18 | fault_flags | u8 | fault bits active now (see below) |
+| 19 | CHECKSUM | u8 | |
 
-Values outside the field range are clamped by the sender (i16: −327.68 … 327.67, u16: 0 … 655.35).
+Values outside the field range are clamped by the sender (i16 ×100: −327.68 … 327.67, u16 ×100: 0 … 655.35, u16 ×10: 0 … 6553.5).
+
+- `pressure_x10` is the raw Bar30 reading, **not** minus the surface reference (that is applied to `depth_x100` only). It is scaled ×10 instead of ×100 because the Bar30 reads up to ~3000 kPa, which would overflow 16 bits at ×100. 0.1 kPa = 100 Pa ≈ 1 cm of water, the same resolution as depth.
+- The Pi side (`UART_DMA.py`) must expect the 20-byte frame; an 18-byte parser will fail every checksum.
 
 **Fault flags** (live: a bit clears when its fault recovers, except LEAK, which stays set until a recover command. While a sensor's bit is set, its telemetry field holds its last good value and should be ignored):
 | Bit | Value | Fault |
@@ -104,7 +108,7 @@ Values outside the field range are clamped by the sender (i16: −327.68 … 327
 
 ## Leak / Emergency Shutdown
 - The leak sensor drives the TIM1 and TIM8 break inputs (PB12, PA6, active HIGH). On a leak the hardware immediately forces all six thruster PWM outputs off — no software involved.
-- The break ISR only latches `SYS_STATE_FAULT_LEAK` and disables further break interrupts. `emergency_shutdown()` in the main loop then stops everything except the status LEDs and UART4: thruster and camera-servo PWM stopped and pins held LOW, ADC + TIM2 stopped, I2C1 de-initialized, break and ADC DMA interrupts disabled. All three LEDs on (LEAK pattern).
+- The break ISR only latches `SYS_STATE_FAULT_LEAK` and disables further break interrupts. `emergency_shutdown()` in the main loop then stops everything except the status LEDs and UART4: thruster and camera-servo PWM stopped and pins held LOW, ADC + TIM2 stopped, I2C1 de-initialized, break and ADC DMA interrupts disabled. Red LED solid (LEAK pattern).
 - Telemetry keeps running at 50 Hz so the Pi sees `leak = 1` and the LEAK fault flag. Sensor fields are frozen at their last reading (0 if the leak was present at boot).
 - Motor and tilt values from the Pi are ignored during a leak.
 - If a leak is present at boot, the board skips sensor start-up and goes straight to the shutdown state (UART still runs).
@@ -118,35 +122,35 @@ Values outside the field range are clamped by the sender (i16: −327.68 … 327
 <hr>
 
 ## Status LEDs
+Each LED shows one thing, so statuses combine (e.g. green blinking + yellow solid = waiting for the Pi with a sensor fault).
 
-**Power-up** (the only time an LED blinks):
-1. Lamp test: all three on for ~1s
-2. Green blinks, then stays on while the sensors initialize
-3. Fast green flicker: boot finished
+**Power-up:**
+1. Lamp test: all three on for ~1 s
+2. Green solid while the sensors initialize (solid, so it can't be mistaken for "Waiting for Pi")
+3. Fast green flicker (0.6 s): boot finished
 4. Switch to the status table below
 
-If a leak is present at boot, the power-up sequence is skipped and all three LEDs stay on.
+If a leak is present at boot, the power-up sequence is skipped and the red LED stays on (LEAK).
 
-| State | Green | Yellow | Red | Note |
-|-------|:---:|:---:|:---:|:---:|
-| Connected, sensors OK | ● | ○ | ○ |
-| Connected, I2C fault | ● | ● | ○ |
-| Waiting for Pi, sensors OK | ● | ○ | ● |
-| Waiting for Pi, I2C fault * | ○ | ● | ○ |
-| Link lost, sensors OK | ○ | ○ | ● |
-| Link lost, I2C fault | ○ | ● | ● |
-| **LEAK** | ● | ● | ● |
-| STM32 not running | ○ | ○ | ○ | Power is indicated by separate LEDs <br> connected to the 3V3 and 5V rails |
+| Status | Green | Yellow | Red |
+|-------|:---:|:---:|:---:|
+| Pi connected | ● | ○ | ○ |
+| Waiting for Pi | ◐ | ○ | ○ |
+| Pi link lost | ○ | ○ | ◐ |
+| I2C sensor fault | ○ | ● | ○ |
+| **LEAK** | ○ | ○ | ● |
+| STM32 not running | ○ | ○ | ○ |
 
-● = on, ○ = off
+● = solid, ◐ = blinking 1 Hz (500 ms on / 500 ms off), ○ = off. Power is indicated by separate LEDs connected to the 3V3 and 5V rails.
 
-- \* Waiting + I2C fault would be all three on, which is LEAK, so it shows yellow alone.
-- LEAK overrides everything and stays on until a recover command.
+- Solid red = LEAK, blinking red = link lost.
+- LEAK overrides everything (only red is lit) and stays on until a recover command.
 - Sensor faults and link state are live: the LEDs clear when the fault recovers.
 - A sensor is faulted after 3 failed reads in a row (60 ms). Faulted sensors are re-initialized every 1 s; the IMU's operation mode is also checked every 1 s to catch it resetting itself.
 - "Waiting" = booted, no valid command from the Pi yet. "Link lost" = commands were received, then timed out (150 ms).
+- The blink is timed from `HAL_GetTick()` in `status_led_update()` (non-blocking), so green and red always blink in step.
 - The SWO debug print shows which sensor is faulted, e.g. `Faults: 0x04 [ DEPTH ]`.
-- If the firmware hangs, the LEDs freeze on their last pattern. All off only means no power.
+- If the firmware hangs, the LEDs freeze on their last pattern (a blinking LED stops blinking, either on or off).
 
 
 <hr>
@@ -180,7 +184,7 @@ I2C devices (all on I2C1, 100 kHz):
 
 | Setting | Set with | Current value | Notes |
 |---------|----------|:---:|-------|
-| Surface reference | `MS5837_SetSurfaceReference()` | `SURFACE_PRESSURE` = 1050.25 mbar (105 025 Pa) | Pressure read as 0 m depth |
+| Surface reference | `MS5837_SetSurfaceReference()` | `SURFACE_PRESSURE` = 1050.25 mbar (105 025 Pa) | Pressure read as 0 m depth (affects `depth_x100` only, not `pressure_x10`) |
 | Second-order compensation | `bar30.secondOrderCalculation` | off | Set `true` for extra temperature correction below 20 °C |
 
 - Battery monitor divider: R1 = 100 kΩ, R2 = 18 kΩ (`BATTERY_MONITOR_R1/R2` in `main.c`). V<sub>batt</sub> = V<sub>ADC</sub> × (R1 + R2) / R2.
