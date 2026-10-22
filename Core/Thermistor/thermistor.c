@@ -5,17 +5,18 @@
  *      Author: Thomas Bourgeois
  *
  *  Description:
- *      Driver support header for an NTC thermistor (Vishay NTCLE100E3103JB0,
+ *      Driver for an NTC thermistor (Vishay NTCLE100E3103JB0,
  *      10 kΩ @ 25°C, B25/85 = 3977K material).
  *
  *      Temperature is computed from measured NTC resistance using the
- *      extended Steinhart-Hart equation (per the Vishay NTCLE100E3 datasheet):
+ *      extended Steinhart-Hart equation with R in ohms:
  *
- *          1/T(K) = A1 + B1*ln(R/Rref) + C1*ln^2(R/Rref) + D1*ln^3(R/Rref)
+ *          1/T(K) = A + B*ln(R) + C*ln^2(R) + D*ln^3(R)
  *
- *      Coefficients A1-D1 are specific to the thermistor.
- *      Refer to the datasheet for these values.
-
+ *      Coefficients A1-D1 (thermistor.h) were curve-fit against ln(R) in
+ *      ohms, NOT ln(R/Rref) as in the Vishay datasheet form. Don't mix the
+ *      two: datasheet coefficients won't work with this equation, and these
+ *      coefficients won't work with ln(R/Rref) (gives ~590 °C at 25 °C).
  */
 
 #include "thermistor.h"
@@ -51,8 +52,9 @@ float therm_get_ntc_resistance(float adcValue) {
 /*
  * @brief   Converts a measured NTC thermistor resistance to temperature.
  *
- * @details Uses the Steinhart-Hart equation:
- *
+ * @details Uses the extended Steinhart-Hart equation:
+ *              1/T(K) = A1 + B1*ln(R) + C1*ln^2(R) + D1*ln^3(R)
+ *          with R in ohms (see file header for why not ln(R/Rref)).
  *
  * @param   R  Measured thermistor resistance, in Ohms.
  *
@@ -63,10 +65,10 @@ float therm_get_ntc_resistance(float adcValue) {
  */
 float therm_get_temperature(float R) {
 
-	float lnR = logf(R / RREF); // ln(R / R_ref)
-	float lnR2 = lnR * lnR; // ln^2(R / R_ref)
-	float lnR3 = lnR2 * lnR; // ln^3(R / R_ref)
+	float lnR = logf(R);     // ln(R), R in ohms
+	float lnR2 = lnR * lnR;  // ln^2(R)
+	float lnR3 = lnR2 * lnR; // ln^3(R)
 
 	float invT = A1 + (B1 * lnR) + (C1 * lnR2) + (D1 * lnR3);
-	return (1.0f / invT) - 273.15;
+	return (1.0f / invT) - 273.15f;
 }
