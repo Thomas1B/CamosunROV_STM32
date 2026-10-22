@@ -70,7 +70,7 @@ typedef enum {
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-#define SURFACE_PRESSURE 1050.25f // surface barometric pressure reference (units are either hPa or mbar)
+#define SURFACE_PRESSURE 1013.25f // surface barometric pressure reference (units are either hPa or mbar)
 #define WATER_DENSITY 1000.00f // density of water, change this depending on freshwater or saltwater: 1000 kg/m^3 or 1025 kg/m^3 (avg)
 
 #define ADC1_NUM_CHANNELS 2 // number of channels use on ADC1
@@ -429,11 +429,11 @@ int main(void) {
 
 
 			}
-			printf("Euler: Heading = %0.2f, Roll = %0.2f, Pitch = %0.2f\r\n",
+			printf("Euler: Heading = %0.2f \xB0, Roll = %0.2f \xB0, Pitch = %0.2f \xB0\r\n",
 					imu_vec.x, imu_vec.y, imu_vec.z);
-			printf("Battery Voltage = %0.3f\n", battery_voltage);
-			printf("Internal Temperature = %0.3f\n", internal_temperature);
-			printf("Water Temperature = %0.2f\n", water_temperature);
+			printf("Battery Voltage = %0.3f V\n", battery_voltage);
+			printf("Internal Temperature = %0.3f C\n", internal_temperature);
+			printf("Water Temperature = %0.2f C\n", water_temperature);
 			printf("Pressure = %0.1f kPa\n", pressure_kpa);
 			printf("Depth = %0.2f\n", depth);
 			print_faults(get_faults()); // same bits the Pi receives
