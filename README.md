@@ -15,11 +15,11 @@ Built with STM32CubeIDE 2.2.0 / STM32CubeMX 6.18.1, firmware package **STM32Cube
 
 # TODO:
 - [ ] Test I2C Water Temperature Sensor firmware (waiting for sensor to arrive)
-- [ ] Test status LEDs on hardware (lamp test, boot sequence, each pattern in the LED table)
 - [ ] Test Recovery (restarts PWM generation, ADC reads, re-enables BKIN interrupts, etc.)
 - [ ] Find each ESC's deadband range (all motors still use the default 1450 µs / 1550 µs onset values)
 - [ ] Full test of hardware prototype using Pilot UI
 - [ ] Full Test on Custom on PCB
+- [x] Test status LEDs on hardware (lamp test, boot sequence, each pattern in the LED table)
 - [x] Finish Emergency Shutdown Function
 - [x] UART to/from Pi
 - [X] Live I2C sensor fault detection + 1 s retry (code done)
