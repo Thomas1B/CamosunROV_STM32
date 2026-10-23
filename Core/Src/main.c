@@ -72,6 +72,7 @@ typedef enum {
 
 #define SURFACE_PRESSURE 1013.25f // surface barometric pressure reference (standard sea level pressure = 1013.25, units are either hPa or mbar)
 #define WATER_DENSITY 1000.00f // density of water, change this depending on freshwater or saltwater: 1000 kg/m^3 or 1025 kg/m^3 (avg)
+#define second_order_calculation true // true = enable second-order calculation, compensates for water below 20 C
 
 #define ADC1_NUM_CHANNELS 2 // number of channels use on ADC1
 #define ADC1_SAMPLES_PER_CHANNEL 16 // number of samples to take / note: TIM2 (1KHz)
@@ -253,7 +254,7 @@ int main(void) {
 	MS5837_SetModel(&bar30, MS5837_MODEL_30BA); // set the sensor model
 	MS5837_SetSurfaceReference(&bar30, SURFACE_PRESSURE); // pressure read as 0 m depth
 	MS5837_SetFluidDensity(&bar30, WATER_DENSITY); // fresh or salt water
-	bar30.secondOrderCalculation = false; // true = enable second-order calculation, compensates for water below 20 C
+	bar30.secondOrderCalculation = second_order_calculation; // true = enable second-order calculation, compensates for water below 20 C
 	TSYS01_SetI2C(&celsius, &hi2c1); // Assign the I2C handle to the TSYS01 (0x77, Bar30 is 0x76)
 
 	if (system_state_t == SYS_STATE_FAULT_LEAK) {
