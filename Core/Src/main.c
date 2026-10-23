@@ -70,7 +70,7 @@ typedef enum {
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-#define SURFACE_PRESSURE 1013.25f // surface barometric pressure reference (units are either hPa or mbar)
+#define SURFACE_PRESSURE 1013.25f // surface barometric pressure reference (standard sea level pressure = 1013.25, units are either hPa or mbar)
 #define WATER_DENSITY 1000.00f // density of water, change this depending on freshwater or saltwater: 1000 kg/m^3 or 1025 kg/m^3 (avg)
 
 #define ADC1_NUM_CHANNELS 2 // number of channels use on ADC1
