@@ -180,12 +180,13 @@ I2C devices (all on I2C1, 100 kHz):
 | Celsius (TSYS01) | `0x77` |
 
 
-**Depth sensor (Bar30) settings**, set once at boot in `main.c`:
+**Depth sensor (Bar30) settings**, set once at boot in `main.c` (under USER CODE BEGIN PD):
 
 | Setting | Set with | Current value | Notes |
 |---------|----------|:---:|-------|
-| Surface reference | `MS5837_SetSurfaceReference()` | `SURFACE_PRESSURE` = 1050.25 mbar (105 025 Pa) | Pressure read as 0 m depth (affects `depth_x100` only, not `pressure_x10`) |
-| Second-order compensation | `bar30.secondOrderCalculation` | off | Set `true` for extra temperature correction below 20 °C |
+| Surface reference | `SURFACE_PRESSURE` | 1013.25 mbar (101 325 Pa, standard sea-level pressure) | Pressure read as 0 m depth (affects `depth_x100` only, not `pressure_x10`) |
+| Water density | `WATER_DENSITY` | 1000.00 kg/m³ (freshwater) | Use 1025 kg/m³ for saltwater (average). Affects `depth_x100` only |
+| Second-order compensation | `second_order_calculation` | `true` (on) | Extra temperature correction below 20 °C. Set `false` to disable |
 
 - Battery monitor divider: R1 = 100 kΩ, R2 = 18 kΩ (`BATTERY_MONITOR_R1/R2` in `main.c`). V<sub>batt</sub> = V<sub>ADC</sub> × (R1 + R2) / R2.
 
