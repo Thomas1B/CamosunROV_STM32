@@ -74,6 +74,18 @@ Full details are in `Core/UART_DMA/UART_DMA.h`.
 | 9 | recover | u8 | 0 = normal, 1 = clear a leak shutdown (see below) |
 | 10 | CHECKSUM | u8 | |
 
+**Pi → STM32 reference (10 bytes, only when the values change):** the Bar30 depth settings from the command centre (CONNECT dialog / File ▸ Reference Values…). The Pi sends each new set 3 times, about 10 ms after a command frame, and again whenever the STM32 reconnects.
+| Byte(s) | Field | Type | Units / Range |
+|:---:|-------|:---:|-------|
+| 0 | START_REF | u8 | `0xAB` (commands use `0xAA`) |
+| 1–4 | surface_hpa_x100 | u32 | surface pressure reference, hPa (= mbar) ×100, 80000 … 110000 |
+| 5–6 | density_x10 | u16 | water density, kg/m³ ×10, 9000 … 11000 |
+| 7 | flags | u8 | bit 0 = second-order calibration on |
+| 8 | ref_id | u8 | +1 each time the values change (the repeats share it) |
+| 9 | CHECKSUM | u8 | |
+
+Out-of-range values are rejected even with a good checksum. A valid frame is stored by the UART interrupt and applied by the main loop (`apply_reference()`), replacing the `SURFACE_PRESSURE` / `WATER_DENSITY` / `second_order_calculation` boot defaults. Reference frames are not commands: they don't reset the link timeout and aren't counted as lost commands.
+
 **STM32 → Pi telemetry (20 bytes, 50 Hz):**
 | Byte(s) | Field | Type | Units |
 |:---:|-------|:---:|-------|
@@ -180,7 +192,7 @@ I2C devices (all on I2C1, 100 kHz):
 | Celsius (TSYS01) | `0x77` |
 
 
-**Depth sensor (Bar30) settings**, set once at boot in `main.c` (under USER CODE BEGIN PD):
+**Depth sensor (Bar30) settings**: boot defaults in `main.c` (under USER CODE BEGIN PD). The command centre can change all three at run time (sent through the Pi as a reference frame, see the UART protocol above). After a reset the defaults apply again until the Pi re-sends them, which it does whenever the STM32 reconnects. Keep the defaults the same as the command centre's (`config.py`):
 
 | Setting | Set with | Current value | Notes |
 |---------|----------|:---:|-------|

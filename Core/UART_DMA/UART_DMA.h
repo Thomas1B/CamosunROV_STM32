@@ -9,8 +9,10 @@
  *
  *  Declares:
  *    - Frame constants: PROTO_START_BYTE, CMD_FRAME_SIZE (11),
- *      TELEM_FRAME_SIZE (20), PROTO_RX_DMA_SIZE (64)
+ *      TELEM_FRAME_SIZE (20), PROTO_REF_START_BYTE, REF_FRAME_SIZE (10),
+ *      PROTO_RX_DMA_SIZE (64)
  *    - cmd_data_t   : decoded command frame (Pi -> STM32)
+ *    - ref_data_t   : decoded reference frame (Pi -> STM32, Bar30 settings)
  *    - telem_data_t : telemetry values to send (STM32 -> Pi)
  *    - RX functions : proto_start_rx, proto_rx_event_handler,
  *                     proto_rx_error_handler, proto_rx_keepalive
@@ -51,6 +53,28 @@
  *  Pi -> STM32 (command), 11 bytes:
  *    [ START ][ motor1..motor6 ][ cam_tilt_dc ][ recover ][ CHECKSUM ]
  *       1 B        6x 1 B         2 B (i16)      1 B (u8)     1 B
+ *
+ *  Pi -> STM32 (reference), 10 bytes -- Bar30 depth-calculation settings
+ *  from the command centre, sent only when they change (3 times each) and
+ *  whenever the STM32 (re)connects:
+ *    [ START_REF ][ surface_hpa_x100 ][ density_x10 ][ flags ][ ref_id ][ CHECKSUM ]
+ *        1 B          4 B (u32)          2 B (u16)     1 B      1 B        1 B
+ *
+ *  START_REF:   0xAB (commands use 0xAA). Sent on its own, ~10 ms after a
+ *               command frame, so it normally arrives as its own chunk.
+ *  surface_hpa_x100: surface pressure reference, hPa (= mbar) x100,
+ *               e.g. 101325 = 1013.25 mbar -> MS5837_SetSurfaceReference().
+ *  density_x10: water density, kg/m^3 x10, e.g. 10000 = 1000.0 kg/m^3
+ *               -> MS5837_SetFluidDensity().
+ *  flags:       bit0 = second-order pressure calibration on (water below
+ *               20 degC) -> bar30.secondOrderCalculation.
+ *  ref_id:      +1 (wrapping) each time the values change; the 3 repeats of
+ *               one set share the same ref_id.
+ *  Frames whose values are out of range (surface 800.00..1100.00 mbar,
+ *  density 900.0..1100.0 kg/m^3) are rejected even if the checksum is
+ *  good, so a stray 0xAB inside a corrupted chunk can never change them.
+ *  Until a reference frame arrives, main.c uses its SURFACE_PRESSURE,
+ *  WATER_DENSITY and second_order_calculation #defines (boot defaults).
  *
  *  STM32 -> Pi (telemetry), 20 bytes:
  *    [ START ][ pressure_x10 ][ depth_x100 ][ water_temp_x100 ][ battery_x100 ]
@@ -111,13 +135,34 @@
 #define CMD_FRAME_SIZE     11   /* START + 6 motors + tilt(2) + recover + checksum */
 #define TELEM_FRAME_SIZE   20   /* START + 8x 2-byte fields + leak + faults + checksum */
 
+#define PROTO_REF_START_BYTE 0xAB /* reference frame start (commands use 0xAA) */
+#define REF_FRAME_SIZE     10   /* START + surface(4) + density(2) + flags + ref_id + checksum */
+#define REF_FLAG_SECOND_ORDER 0x01U /* flags bit0: second-order pressure calibration on */
+
+/* Accepted ranges for reference values (anything else is rejected). */
+#define REF_SURFACE_MIN_X100  80000UL  /*  800.00 mbar */
+#define REF_SURFACE_MAX_X100 110000UL  /* 1100.00 mbar */
+#define REF_DENSITY_MIN_X10    9000U   /*  900.0 kg/m^3 */
+#define REF_DENSITY_MAX_X10   11000U   /* 1100.0 kg/m^3 */
+
 #define PROTO_RX_DMA_SIZE  64   /* DMA chunk buffer; > several frames */
+
+/* proto_rx_event_handler() return bits: what the chunk contained */
+#define PROTO_RX_CMD  0x01U     /* `out` holds a new valid command */
+#define PROTO_RX_REF  0x02U     /* `ref_out` holds a new valid reference frame */
 
 typedef struct {
 	int8_t motor[6]; /* -100..100 (%), one per thruster */
 	int16_t tilt_dc; /* camera tilt x10, deci-degrees */
 	uint8_t recover; /* 0 = normal, 1 = clear leak shutdown (on 0 -> 1 change) */
 } cmd_data_t;
+
+typedef struct {
+	uint32_t surface_hpa_x100; /* surface pressure reference, hPa (= mbar) x100 */
+	uint16_t density_x10; /* water density, kg/m^3 x10 */
+	uint8_t flags; /* bit0 = second-order calibration on (REF_FLAG_SECOND_ORDER) */
+	uint8_t ref_id; /* +1 each time the values change */
+} ref_data_t;
 
 typedef struct {
 	uint16_t pressure_x10; /* absolute pressure, kPa x10 (= hPa), ~1013 at surface */
@@ -147,10 +192,12 @@ HAL_StatusTypeDef proto_start_rx(UART_HandleTypeDef *huart);
  * proto_rx_event_handler()
  * Call from HAL_UARTEx_RxEventCallback(huart, Size) for this UART.
  * Parses the received chunk (complete frames only), then re-arms DMA.
- * Returns 1 if `out` now holds a valid decoded command, 0 otherwise.
+ * Returns a bit mask: PROTO_RX_CMD if `out` now holds a valid decoded
+ * command, PROTO_RX_REF if `ref_out` now holds a valid reference frame,
+ * 0 if the chunk held neither.
  */
 uint8_t proto_rx_event_handler(UART_HandleTypeDef *huart, uint16_t size,
-		cmd_data_t *out);
+		cmd_data_t *out, ref_data_t *ref_out);
 
 /*
  * proto_rx_error_handler()

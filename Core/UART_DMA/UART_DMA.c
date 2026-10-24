@@ -19,6 +19,15 @@
  *      [9]      recover        uint8, 0 = normal, 1 = clear leak shutdown
  *      [10]     checksum       8-bit sum of bytes [1..9]
  *
+ *    Reference frame (REF_FRAME_SIZE = 10 bytes), Bar30 settings, sent by
+ *    the Pi only when they change. Found in the same chunk scan:
+ *      [0]      START_REF      0xAB
+ *      [1..4]   surface        uint32, hPa (= mbar) x100, little-endian
+ *      [5..6]   density        uint16, kg/m^3 x10, little-endian
+ *      [7]      flags          bit0 = second-order calibration on
+ *      [8]      ref_id         +1 each time the values change
+ *      [9]      checksum       8-bit sum of bytes [1..8]
+ *
  *  TX (STM32 -> Pi): telemetry frames, sent with HAL_UART_Transmit_DMA.
  *
  *    Telemetry frame (TELEM_FRAME_SIZE = 20 bytes), 16-bit fields little-endian:
@@ -152,6 +161,37 @@ static uint8_t proto_frame_valid(const uint8_t *frame) {
 }
 
 /*
+ * Checks whether the REF_FRAME_SIZE bytes starting at `frame` form a valid
+ * reference frame: START_REF byte, checksum over bytes [1..8], AND values
+ * inside the REF_* ranges. The range check matters because 0xAB can also
+ * appear inside a command frame (e.g. motor -85): a corrupted chunk could
+ * then pass the 8-bit checksum by chance (1 in 256), but random bytes
+ * landing in both narrow ranges as well is practically impossible.
+ * Returns 1 and fills `out` if valid, 0 otherwise.
+ */
+static uint8_t proto_ref_frame(const uint8_t *frame, ref_data_t *out) {
+	if (frame[0] != PROTO_REF_START_BYTE) {
+		return 0;
+	}
+	if (proto_checksum8(&frame[1], REF_FRAME_SIZE - 2)
+			!= frame[REF_FRAME_SIZE - 1]) {
+		return 0;
+	}
+	uint32_t surface = (uint32_t) frame[1] | ((uint32_t) frame[2] << 8)
+			| ((uint32_t) frame[3] << 16) | ((uint32_t) frame[4] << 24);
+	uint16_t density = (uint16_t) ((uint16_t) frame[5] | ((uint16_t) frame[6] << 8));
+	if ((surface < REF_SURFACE_MIN_X100) || (surface > REF_SURFACE_MAX_X100)
+			|| (density < REF_DENSITY_MIN_X10) || (density > REF_DENSITY_MAX_X10)) {
+		return 0;
+	}
+	out->surface_hpa_x100 = surface;
+	out->density_x10 = density;
+	out->flags = frame[7];
+	out->ref_id = frame[8];
+	return 1;
+}
+
+/*
  * Starts (or restarts) command reception on the UART, using DMA with IDLE
  * line detection. Received bytes go into dmaBuf, and
  * HAL_UARTEx_RxEventCallback fires when either:
@@ -188,8 +228,8 @@ HAL_StatusTypeDef proto_start_rx(UART_HandleTypeDef *huart) {
  * with the rest of the chunk. Nothing is carried over to the next chunk.
  * ========================================================================= */
 uint8_t proto_rx_event_handler(UART_HandleTypeDef *huart, uint16_t size,
-		cmd_data_t *out) {
-	uint8_t found = 0;
+		cmd_data_t *out, ref_data_t *ref_out) {
+	uint8_t found = 0; /* PROTO_RX_CMD / PROTO_RX_REF bits */
 
 	if (size > PROTO_RX_DMA_SIZE) {
 		size = PROTO_RX_DMA_SIZE;
@@ -203,15 +243,29 @@ uint8_t proto_rx_event_handler(UART_HandleTypeDef *huart, uint16_t size,
 	 * corrupted frame from being counted more than once: a corrupted frame
 	 * whose body also contains 0xAA would otherwise give a second failing
 	 * "START" a few bytes later. Only a failure at or after badUntil (i.e.
-	 * outside the CMD_FRAME_SIZE bytes of the last counted one) is counted. */
+	 * outside the CMD_FRAME_SIZE bytes of the last counted one) is counted.
+	 *
+	 * Reference frames (0xAB) are shorter than command frames, so the scan
+	 * runs while at least a reference frame still fits; a command frame is
+	 * only tested where all CMD_FRAME_SIZE bytes are present, exactly as
+	 * before. A bad reference frame is just skipped (not counted as a lost
+	 * command). */
 	uint16_t i = 0;
 	uint16_t badUntil = 0;
-	while ((uint16_t) (i + CMD_FRAME_SIZE) <= size) {
-		if (dmaBuf[i] != PROTO_START_BYTE) {
-			i++; /* not a frame start: skip quickly, not a loss */
+	while ((uint16_t) (i + REF_FRAME_SIZE) <= size) {
+		if (dmaBuf[i] == PROTO_REF_START_BYTE) {
+			if (proto_ref_frame(&dmaBuf[i], ref_out)) {
+				found |= PROTO_RX_REF; /* last valid one wins */
+				i += REF_FRAME_SIZE;
+			} else {
+				i++; /* not a valid reference frame (e.g. 0xAB inside a command) */
+			}
+		} else if ((dmaBuf[i] != PROTO_START_BYTE)
+				|| ((uint16_t) (i + CMD_FRAME_SIZE) > size)) {
+			i++; /* not a frame start, or too short for a command: not a loss */
 		} else if (proto_frame_valid(&dmaBuf[i])) {
 			proto_unpack_cmd_frame(&dmaBuf[i], out); /* last valid one wins */
-			found = 1;
+			found |= PROTO_RX_CMD;
 			rxSynced = 1;
 			i += CMD_FRAME_SIZE;
 		} else {

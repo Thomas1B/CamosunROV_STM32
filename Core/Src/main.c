@@ -70,6 +70,9 @@ typedef enum {
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
+/* Bar30 reference values: BOOT DEFAULTS. The command centre can change all three at run time
+ * (CONNECT dialog / File > Reference Values...) -- the Pi forwards them in a reference frame,
+ * see apply_reference(). Keep these the same as the command centre's defaults (config.py). */
 #define SURFACE_PRESSURE 1013.25f // surface barometric pressure reference (standard sea level pressure = 1013.25, units are either hPa or mbar)
 #define WATER_DENSITY 1000.00f // density of water, change this depending on freshwater or saltwater: 1000 kg/m^3 or 1025 kg/m^3 (avg)
 #define second_order_calculation true // true = enable second-order calculation, compensates for water below 20 C
@@ -142,6 +145,10 @@ static volatile uint32_t lastCmdTick = 0;  // HAL tick of the last valid command
 static uint8_t failsafeActive = 1; // 1 = thrusters stopped by the command timeout
 static uint8_t linkEstablished = 0; // 1 = at least one valid command received since boot
 static uint8_t lastRecover = 0;     // recover byte of the previous command, for 0 -> 1 detection
+static ref_data_t latestRef; // newest valid reference frame; written in UART ISR, copied in main with IRQs off
+static volatile uint8_t refReady = 0; // 1 = latestRef holds reference values main hasn't applied yet
+static uint8_t refReceived = 0;     // 1 = at least one reference frame applied since boot
+static uint8_t lastRefId = 0;       // ref_id of the last applied frame (repeats share it)
 
 /*
  * I2C sensor faults that are active RIGHT NOW (IMU / DEPTH / TEMP bits only).
@@ -181,6 +188,7 @@ static uint16_t to_u16_x100(float v);
 static uint16_t to_u16_x10(float v);
 static int16_t to_i16_x100(float v);
 static void apply_command(const cmd_data_t *cmd);
+static void apply_reference(const ref_data_t *ref);
 static void apply_failsafe(void);
 static void read_sensors(void);
 static void send_telemetry(void);
@@ -328,6 +336,24 @@ int main(void) {
 		/* USER CODE END WHILE */
 
 		/* USER CODE BEGIN 3 */
+
+		/* ---- 0. Bar30 reference values from the Pi --------------------- */
+		// Applied even during a leak shutdown (only stored, no I2C traffic), so
+		// they are already in place if the ROV recovers.
+		{
+			ref_data_t ref;
+			uint8_t haveRef = 0;
+			__disable_irq(); // copy atomically so the UART ISR can't change it mid-copy
+			if (refReady) {
+				ref = latestRef;
+				refReady = 0;
+				haveRef = 1;
+			}
+			__enable_irq();
+			if (haveRef) {
+				apply_reference(&ref);
+			}
+		}
 
 		/* ---- 1. Faults ------------------------------------------------ */
 		// LEAK is set by the break ISR and stays set until a recover command.
@@ -1458,6 +1484,32 @@ static int16_t to_i16_x100(float v) {
 }
 
 /**
+ * @brief Applies Bar30 reference values received from the Pi (command centre).
+ *
+ * Replaces the SURFACE_PRESSURE / WATER_DENSITY / second_order_calculation
+ * boot defaults. Only updates the MS5837 settings (no I2C traffic), so it is
+ * safe at any time, including during a leak shutdown. MS5837_Init() keeps
+ * these settings, so they survive a Bar30 fault + re-init; after an STM32
+ * reset the #defines apply again until the Pi re-sends (it does so whenever
+ * the STM32 reconnects). The Pi sends each new set 3 times with the same
+ * ref_id: re-applying is harmless, only the debug print is skipped.
+ */
+static void apply_reference(const ref_data_t *ref) {
+	MS5837_SetSurfaceReference(&bar30, (float) ref->surface_hpa_x100 / 100.0f);
+	MS5837_SetFluidDensity(&bar30, (float) ref->density_x10 / 10.0f);
+	bar30.secondOrderCalculation = (ref->flags & REF_FLAG_SECOND_ORDER) != 0U;
+
+	if (!refReceived || (ref->ref_id != lastRefId)) {
+		printf("Pi ref #%u: surface=%0.2f mbar, density=%0.1f kg/m3, 2nd-order=%s\r\n",
+				ref->ref_id, MS5837_GetSurfaceReference(&bar30),
+				MS5837_GetFluidDensity(&bar30),
+				bar30.secondOrderCalculation ? "ON" : "OFF");
+	}
+	refReceived = 1;
+	lastRefId = ref->ref_id;
+}
+
+/**
  * @brief Applies a command received from the Pi.
  *
  * motor[0..5] in the frame drive motor1()..motor6() from motors.h (those
@@ -1558,10 +1610,16 @@ static void send_telemetry(void) {
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size) {
 	if (huart->Instance == UART4) {
 		cmd_data_t cmd;
-		if (proto_rx_event_handler(huart, Size, &cmd)) {
+		ref_data_t ref;
+		uint8_t got = proto_rx_event_handler(huart, Size, &cmd, &ref);
+		if (got & PROTO_RX_CMD) {
 			latestCmd = cmd;              // main loop copies it with IRQs off
 			lastCmdTick = HAL_GetTick();
 			cmdReady = 1;
+		}
+		if (got & PROTO_RX_REF) {
+			latestRef = ref;              // applied by the main loop (step 0)
+			refReady = 1;                 // NOT a command: doesn't reset the link timeout
 		}
 	}
 }
