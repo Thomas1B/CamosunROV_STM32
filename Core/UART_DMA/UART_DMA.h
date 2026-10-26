@@ -94,7 +94,9 @@
  *               is numerically the same as hPa / mbar). Raw sensor reading,
  *               NOT minus the surface reference, so ~1013 at the surface.
  *               0.1 kPa = 100 Pa ~= 1 cm of water.
- *  leak:        live leak-sensor state, 0 = dry, 1 = water detected NOW.
+ *  leak:        latched leak state, 0 = no leak, 1 = leak detected. Stays 1
+ *               (even after the sensor dries) until a recover command
+ *               succeeds, which also needs the sensor to be dry.
  *  fault_flags: SystemState_t bit flags active RIGHT NOW (SYS_STATE_FAULT_LEAK,
  *               _IMU, _DEPTH, _TEMP, _UART), OR'ed together into one byte.
  *               A bit clears when its fault recovers (except LEAK, which
@@ -173,7 +175,7 @@ typedef struct {
 	uint16_t heading_x100; /* BNO055 heading x100, 0-36000 (0.01 deg) */
 	int16_t roll_x100; /* BNO055 roll x100, ~-9000..9000 */
 	int16_t pitch_x100; /* BNO055 pitch x100, ~-18000..18000 */
-	uint8_t leak; /* 0 = dry, 1 = leak detected right now */
+	uint8_t leak; /* 0 = no leak, 1 = leak latched (until recover) */
 	uint8_t fault_flags; /* live SystemState_t flags, OR'ed (LEAK stays set) */
 } telem_data_t;
 
