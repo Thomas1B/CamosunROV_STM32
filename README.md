@@ -46,20 +46,6 @@ Built with STM32CubeIDE 2.2.0 / STM32CubeMX 6.18.1, firmware package **STM32Cube
 
 <hr>
 
-## Project Layout
-| Folder | Contents |
-|--------|----------|
-| `Core/Src/main.c` | Boot sequence, main loop, fault handling, sensor reads, telemetry packing |
-| `Core/UART_DMA/` | Pi ↔ STM32 serial protocol (frame building/parsing, checksums, DMA RX/TX). Keep in sync with `UART_DMA.py` on the Pi |
-| `Core/Motors/` | Thruster ESC and camera-tilt servo PWM control, per-motor calibration constants |
-| `Core/Bar30/` | MS5837 (Bar30) pressure/depth driver |
-| `Core/TSYS01/` | TSYS01 (Celsius) water temperature driver |
-| `Core/BNO055/` | BNO055 IMU driver |
-| `Core/Thermistor/` | NTC thermistor resistance → temperature (Steinhart-Hart) |
-| `Core/MyUtils/` | Helpers: value mapping, ADC averaging, fault-flag checks; status LED patterns (`status_led.c`) |
-
-<hr>
-
 ## UART Protocol (Pi ↔ STM32)
 UART4, 115200 bit/s, 8 data bits, no parity, 1 stop bit. All multi-byte values are little-endian.<br>
 Start byte = `0xAA`. Checksum = sum of all bytes between START and CHECKSUM, mod 256.<br>
@@ -98,7 +84,7 @@ Out-of-range values are rejected even with a good checksum. A valid frame is sto
 | 11–12 | heading_x100 | u16 | ° ×100 (0 … 36000) |
 | 13–14 | roll_x100 | i16 | ° ×100 |
 | 15–16 | pitch_x100 | i16 | ° ×100 |
-| 17 | leak | u8 | 0 = dry, 1 = water detected now |
+| 17 | leak | u8 | 0 = no leak, 1 = leak latched (stays 1 until the sensor is dry and a recover command succeeds) |
 | 18 | fault_flags | u8 | fault bits active now (see below) |
 | 19 | CHECKSUM | u8 | |
 
