@@ -106,11 +106,20 @@ extern TIM_HandleTypeDef htim3; /* the real variable lives in main.c */
 #define SERVO_MAX_PULSE      2000.0f
 
 /*
- * Tilt angle (deci-degrees, x10) that corresponds to SERVO_MIN_PULSE and
- * SERVO_MAX_PULSE. Matches the cam_tilt_dc field in the UART protocol.
+ * Commanded tilt limits (deci-degrees, x10). Commands outside this range
+ * are clamped, so the camera stops at +/-45.0 deg (1250 us .. 1750 us).
+ * Matches the cam_tilt_dc field in the UART protocol.
  */
 #define SERVO_MIN_ANGLE_DC   (-450.0f)
 #define SERVO_MAX_ANGLE_DC   ( 450.0f)
+
+/*
+ * DO NOT CHANGE
+ * Servo angle (deci-degrees, x10) at SERVO_MIN_PULSE and SERVO_MAX_PULSE,
+ * from the MG90S datasheet. Used only to convert angle -> pulse width.
+ */
+#define SERVO_PULSE_MIN_ANGLE_DC (-900.0f)
+#define SERVO_PULSE_MAX_ANGLE_DC ( 900.0f)
 
 /*
  * Camera tilt direction. The protocol defines + = camera tilts UP. If the

@@ -173,9 +173,11 @@ static inline uint32_t tiltToPulse(int32_t tiltDeciDeg) {
 		tiltDeciDeg = -tiltDeciDeg;
 	}
 
-	/* -900 -> 1000 us, 0 -> 1500 us, +900 -> 2000 us (~0.556 us per 0.1 deg) */
-	return lroundf(util_map((float) tiltDeciDeg, SERVO_MIN_ANGLE_DC,
-	SERVO_MAX_ANGLE_DC, SERVO_MIN_PULSE, SERVO_MAX_PULSE));
+	/* -900 -> 1000 us, 0 -> 1500 us, +900 -> 2000 us (~0.556 us per 0.1 deg).
+	 * Mapped over the servo's full +/-90 deg range, so after the +/-45 deg
+	 * clamp above the pulse stays within 1250 us .. 1750 us. */
+	return lroundf(util_map((float) tiltDeciDeg, SERVO_PULSE_MIN_ANGLE_DC,
+	SERVO_PULSE_MAX_ANGLE_DC, SERVO_MIN_PULSE, SERVO_MAX_PULSE));
 }
 
 /**
@@ -187,4 +189,3 @@ static inline uint32_t tiltToPulse(int32_t tiltDeciDeg) {
 void servo(int32_t tiltDeciDeg) {
 	__HAL_TIM_SET_COMPARE(SERVO_TIM, SERVO_CHANNEL, tiltToPulse(tiltDeciDeg));
 }
-
