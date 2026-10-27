@@ -1,2 +1,0 @@
-../Core/Thermistor/thermistor.c:48:7:therm_get_ntc_resistance	16	static
-../Core/Thermistor/thermistor.c:66:7:therm_get_temperature	32	static

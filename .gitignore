@@ -1,0 +1,25 @@
+# --- STM32CubeIDE / Eclipse workspace data (per-user, never commit) ---
+.metadata/
+
+# --- Build output (regenerated every build) ---
+Debug/
+Release/
+*.elf
+*.map
+*.list
+*.o
+*.d
+*.su
+*.cyclo
+*.bin
+*.hex
+
+# --- Debugger logs ---
+st-link_gdbserver_log.txt
+
+# --- OS / editor junk ---
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+.vscode/
