@@ -19,6 +19,7 @@ Built with STM32CubeIDE 2.2.0 / STM32CubeMX 6.18.1, firmware package **STM32Cube
 - [ ] Find each ESC's deadband range (all motors still use the default 1450 µs / 1550 µs onset values)
 - [ ] Full test of hardware prototype using Pilot UI
 - [ ] Full Test on Custom on PCB
+- [ ] Test IWDG on hardware (temporary `while (1) {}` in the main loop with thrusters running: chip resets within ~0.5 s, thrusters stop, board boots normally)
 - [x] Test status LEDs on hardware (lamp test, boot sequence, each pattern in the LED table)
 - [x] Finish Emergency Shutdown Function
 - [x] UART to/from Pi
@@ -34,6 +35,7 @@ Built with STM32CubeIDE 2.2.0 / STM32CubeMX 6.18.1, firmware package **STM32Cube
 - Camera tilt servo (MG90S)
 - Leak detection (hardware break input, latched fault)
 - Command timeout failsafe: thrusters stop if no valid command for 150 ms
+- Independent watchdog (IWDG): resets the STM32 if the main loop hangs for ~0.5 s
 - Sensors:
 	- Depth and absolute pressure — Blue Robotics Bar30 (MS5837-30BA)
 	- Water temperature — Blue Robotics Celsius (TSYS01)
@@ -119,6 +121,30 @@ Values outside the field range are clamped by the sender (i16 ×100: −327.68 �
 
 <hr>
 
+## Watchdog (IWDG)
+The command timeout only works while the main loop is running. If the STM32 itself hangs (HardFault, a stuck loop, a jammed I2C bus), the timers keep outputting the last PWM pulse and the thrusters keep running. The independent watchdog covers this case.
+
+- Runs from the internal LSI clock (~32 kHz), so it keeps working even if the main clocks fail.
+- Prescaler 32, reload 500 → timeout ≈ 0.5 s. The LSI can be 17–47 kHz (datasheet), so the real timeout is about 0.34–0.94 s.
+- The slowest normal main-loop pass is ~100 ms (all three sensors re-initializing in `sensor_health_check()`), well under the 0.34 s minimum.
+- On a watchdog reset the PWM pins stop driving, so the ESCs lose their signal and stop. The board then boots normally with thrusters at 0 % (`failsafeActive = 1`) and waits for the Pi.
+- The watchdog reset is not reported as a fault.
+
+**How it is set up in the code:**
+| Where | What |
+|-------|------|
+| `.ioc` → Project Manager → Advanced Settings | `MX_IWDG_Init` has **Do Not Generate Function Call** ticked, so CubeMX doesn't start the watchdog before the boot sequence |
+| `main.c`, USER CODE BEGIN Init | `__HAL_DBGMCU_FREEZE_IWDG()`: watchdog pauses when the debugger halts the CPU (breakpoints don't cause resets) |
+| `main.c`, end of USER CODE BEGIN 2 | `MX_IWDG_Init()` is called after the lamp test, sensor start-up and PWM start, just before the main loop |
+| `main.c`, top of the main loop (USER CODE BEGIN 3) | `HAL_IWDG_Refresh(&hiwdg)`: the only refresh. At the top so the `continue`s in the leak branch still pass through it |
+
+**Rules when changing the code:**
+- Refresh only from the main loop, never from an interrupt or callback (an ISR would keep the watchdog happy while the main loop is stuck).
+- Nothing in the main loop may block for more than ~300 ms. `imu_start()` / `bno055_setup()` / `bno055_reset()` (700 ms BNO055 reset) and the BNO055 calibration loops are boot-only; never call them from the main loop.
+- Once started, the IWDG can't be stopped except by a reset.
+
+<hr>
+
 ## Status LEDs
 Each LED shows one thing, so statuses combine (e.g. green blinking + yellow solid = waiting for the Pi with a sensor fault).
 
@@ -148,7 +174,7 @@ If a leak is present at boot, the power-up sequence is skipped and the red LED s
 - "Waiting" = booted, no valid command from the Pi yet. "Link lost" = commands were received, then timed out (150 ms).
 - The blink is timed from `HAL_GetTick()` in `status_led_update()` (non-blocking), so green and red always blink in step.
 - The SWO debug print shows which sensor is faulted, e.g. `Faults: 0x04 [ DEPTH ]`.
-- If the firmware hangs, the LEDs freeze on their last pattern (a blinking LED stops blinking, either on or off).
+- If the firmware hangs, the LEDs freeze on their last pattern (a blinking LED stops blinking, either on or off) until the watchdog resets the chip (~0.5 s), after which the power-up sequence runs again.
 
 
 <hr>
@@ -238,6 +264,7 @@ Timer configuration:
 | TIM8 | Motors 5–6 | 180 | 3333 | ~300 Hz, ~1 µs per tick |
 | TIM3 | Camera tilt servo | 90 | 20000 | ~50 Hz, ~1 µs per tick |
 | TIM2 | ADC trigger (TRGO) | 90 | 1000 | ~1 kHz |
+| IWDG | Watchdog (LSI ~32 kHz) | 32 | 500 | ~0.5 s timeout |
 
 *Note:*<br>
 - *PA6 and PB12 are physically connected, hence a leak triggers HIGH on both.*
