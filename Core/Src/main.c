@@ -165,6 +165,10 @@ static uint8_t imuFailCount = 0;   // consecutive failed reads, per sensor
 static uint8_t depthFailCount = 0;
 static uint8_t tempFailCount = 0;
 
+/* Why the STM32 last restarted (reset_cause_t, see UART_DMA.h). Read once at
+ * boot from the RCC reset flags and sent in every telemetry frame. */
+static uint8_t resetCause = RESET_CAUSE_POWER_ON;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -332,6 +336,22 @@ int main(void) {
 	// 4. Switch from the boot sequence to the status table.
 	status_led_update(leak_detected(), get_link_state(), sensorFaults != 0U);
 
+	// Why did the STM32 last restart? Sent to the Pi in every telemetry frame
+	// (info, not a fault). The flags survive the reset and must be read
+	// before they are cleared. Order matters: a power-on also sets PINRST,
+	// and a software reset also sets PINRST, so those are checked first.
+	if (__HAL_RCC_GET_FLAG(RCC_FLAG_IWDGRST)) {
+		resetCause = RESET_CAUSE_WATCHDOG;
+	} else if (__HAL_RCC_GET_FLAG(RCC_FLAG_BORRST)
+			|| __HAL_RCC_GET_FLAG(RCC_FLAG_PORRST)) {
+		resetCause = RESET_CAUSE_POWER_ON;
+	} else if (__HAL_RCC_GET_FLAG(RCC_FLAG_SFTRST)) {
+		resetCause = RESET_CAUSE_SOFTWARE;
+	} else if (__HAL_RCC_GET_FLAG(RCC_FLAG_PINRST)) {
+		resetCause = RESET_CAUSE_PIN;
+	} else {
+		resetCause = RESET_CAUSE_OTHER;
+	}
 	__HAL_RCC_CLEAR_RESET_FLAGS();
 	MX_IWDG_Init();               // watchdog starts now
 
@@ -1642,6 +1662,7 @@ static void send_telemetry(void) {
 		data.leak = 0U;
 	}
 	data.fault_flags = get_faults();
+	data.reset_cause = resetCause; // why the STM32 last restarted (info, not a fault)
 
 	proto_send_telem(&huart4, &data); // HAL_BUSY = previous frame still sending, skip this one
 }

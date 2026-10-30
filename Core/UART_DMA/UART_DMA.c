@@ -30,7 +30,7 @@
  *
  *  TX (STM32 -> Pi): telemetry frames, sent with HAL_UART_Transmit_DMA.
  *
- *    Telemetry frame (TELEM_FRAME_SIZE = 20 bytes), 16-bit fields little-endian:
+ *    Telemetry frame (TELEM_FRAME_SIZE = 21 bytes), 16-bit fields little-endian:
  *      [0]      START          0xAA
  *      [1..2]   pressure       uint16, 0.1 kPa (= hPa), absolute
  *      [3..4]   depth          int16,  0.01 m (centimetres)
@@ -42,7 +42,8 @@
  *      [15..16] pitch          int16,  0.01 deg
  *      [17]     leak           uint8
  *      [18]     fault flags    uint8
- *      [19]     checksum       8-bit sum of bytes [1..18]
+ *      [19]     reset cause    uint8, reset_cause_t (info, not a fault)
+ *      [20]     checksum       8-bit sum of bytes [1..19]
  *
  *  Usage:
  *    - Call proto_start_rx() once after the UART is initialised.
@@ -372,7 +373,8 @@ static void put_u16(uint8_t *dst, uint16_t v) {
  *   15-16  pitch            0.01 degree, signed
  *   17     leak             leak flag
  *   18     fault flags      bit field
- *   19     checksum         over bytes 1-18 (start byte not included)
+ *   19     reset cause      reset_cause_t
+ *   20     checksum         over bytes 1-19 (start byte not included)
  *
  * Signed fields are cast to uint16_t so their two's complement bit pattern
  * is sent unchanged. The receiver must cast them back to int16_t to recover
@@ -391,7 +393,8 @@ void proto_build_telem_frame(const telem_data_t *data,
 	put_u16(&buf[15], (uint16_t) data->pitch_x100);
 	buf[17] = data->leak;
 	buf[18] = data->fault_flags;
-	buf[19] = proto_checksum8(&buf[1], TELEM_FRAME_SIZE - 2);
+	buf[19] = data->reset_cause;
+	buf[20] = proto_checksum8(&buf[1], TELEM_FRAME_SIZE - 2);
 }
 
 /*

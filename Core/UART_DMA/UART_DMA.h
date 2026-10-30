@@ -9,7 +9,7 @@
  *
  *  Declares:
  *    - Frame constants: PROTO_START_BYTE, CMD_FRAME_SIZE (11),
- *      TELEM_FRAME_SIZE (20), PROTO_REF_START_BYTE, REF_FRAME_SIZE (10),
+ *      TELEM_FRAME_SIZE (21), PROTO_REF_START_BYTE, REF_FRAME_SIZE (10),
  *      PROTO_RX_DMA_SIZE (64)
  *    - cmd_data_t   : decoded command frame (Pi -> STM32)
  *    - ref_data_t   : decoded reference frame (Pi -> STM32, Bar30 settings)
@@ -76,13 +76,13 @@
  *  Until a reference frame arrives, main.c uses its SURFACE_PRESSURE,
  *  WATER_DENSITY and second_order_calculation #defines (boot defaults).
  *
- *  STM32 -> Pi (telemetry), 20 bytes:
+ *  STM32 -> Pi (telemetry), 21 bytes:
  *    [ START ][ pressure_x10 ][ depth_x100 ][ water_temp_x100 ][ battery_x100 ]
  *       1 B      2 B (u16)       2 B (i16)       2 B (i16)          2 B (u16)
  *    [ inside_temp_x100 ]
  *       2 B (i16)
- *    [ heading_x100 ][ roll_x100 ][ pitch_x100 ][ leak ][ fault_flags ][ CHECKSUM ]
- *       2 B (u16)      2 B (i16)    2 B (i16)    1 B (u8)   1 B (u8)       1 B
+ *    [ heading_x100 ][ roll_x100 ][ pitch_x100 ][ leak ][ fault_flags ][ reset_cause ][ CHECKSUM ]
+ *       2 B (u16)      2 B (i16)    2 B (i16)    1 B (u8)   1 B (u8)       1 B (u8)       1 B
  *
  *  cam_tilt_dc: camera tilt x10 (deci-degrees), 0 = level, + = up.
  *               No range clamping is done in this protocol layer -- the
@@ -104,6 +104,13 @@
  *               set, its telemetry field holds a stale value; ignore it.
  *               Stored as uint8_t, since a combination of flags (e.g.
  *               LEAK | TEMP = 0x09) is not itself one of the enum's values.
+ *  reset_cause: why the STM32 last restarted (reset_cause_t). Read once at
+ *               boot and sent unchanged in every frame until the next reset,
+ *               so the Pi can't miss it when it reconnects. Information
+ *               only, NOT a fault: by the time it is sent, the board has
+ *               already recovered. 0 = power-on / brown-out, 1 = watchdog
+ *               (IWDG: the firmware hung), 2 = reset pin (button / debugger),
+ *               3 = software reset, 4 = other.
  *
  *  All multi-byte values little-endian. Telemetry measurements are scaled
  *  x100 (2 decimal places, e.g. 12.34 m -> 1234), EXCEPT pressure, which is
@@ -135,7 +142,7 @@
 #define PROTO_START_BYTE   0xAA
 
 #define CMD_FRAME_SIZE     11   /* START + 6 motors + tilt(2) + recover + checksum */
-#define TELEM_FRAME_SIZE   20   /* START + 8x 2-byte fields + leak + faults + checksum */
+#define TELEM_FRAME_SIZE   21   /* START + 8x 2-byte fields + leak + faults + reset_cause + checksum */
 
 #define PROTO_REF_START_BYTE 0xAB /* reference frame start (commands use 0xAA) */
 #define REF_FRAME_SIZE     10   /* START + surface(4) + density(2) + flags + ref_id + checksum */
@@ -177,7 +184,17 @@ typedef struct {
 	int16_t pitch_x100; /* BNO055 pitch x100, ~-18000..18000 */
 	uint8_t leak; /* 0 = no leak, 1 = leak latched (until recover) */
 	uint8_t fault_flags; /* live SystemState_t flags, OR'ed (LEAK stays set) */
+	uint8_t reset_cause; /* reset_cause_t: why the STM32 last restarted (info, not a fault) */
 } telem_data_t;
+
+/* Why the STM32 last restarted. Sent as telemetry reset_cause. */
+typedef enum {
+	RESET_CAUSE_POWER_ON = 0, /* power-on or brown-out (battery dip) */
+	RESET_CAUSE_WATCHDOG = 1, /* IWDG timeout: the main loop hung */
+	RESET_CAUSE_PIN = 2,      /* NRST pin: reset button or debugger */
+	RESET_CAUSE_SOFTWARE = 3, /* NVIC_SystemReset() */
+	RESET_CAUSE_OTHER = 4,    /* WWDG / low-power reset (not used) */
+} reset_cause_t;
 
 /* Additive checksum: sum of `len` bytes at `data`, mod 256. */
 uint8_t proto_checksum8(const uint8_t *data, uint16_t len);
@@ -229,7 +246,7 @@ uint32_t proto_get_cmd_checksum_errors(void);
  */
 void proto_rx_keepalive(UART_HandleTypeDef *huart);
 
-/* Packs telemetry into a ready-to-send 20-byte frame. */
+/* Packs telemetry into a ready-to-send 21-byte frame. */
 void proto_build_telem_frame(const telem_data_t *data,
 		uint8_t txBuf[TELEM_FRAME_SIZE]);
 
