@@ -1,0 +1,12 @@
+../Core/UART_DMA/UART_DMA.c:98:9:proto_checksum8	2
+../Core/UART_DMA/UART_DMA.c:113:13:proto_unpack_cmd_frame	2
+../Core/UART_DMA/UART_DMA.c:144:16:proto_frame_valid	3
+../Core/UART_DMA/UART_DMA.c:172:16:proto_ref_frame	7
+../Core/UART_DMA/UART_DMA.c:212:19:proto_start_rx	2
+../Core/UART_DMA/UART_DMA.c:230:9:proto_rx_event_handler	10
+../Core/UART_DMA/UART_DMA.c:294:10:proto_get_cmd_checksum_errors	1
+../Core/UART_DMA/UART_DMA.c:306:6:proto_rx_error_handler	1
+../Core/UART_DMA/UART_DMA.c:330:6:proto_rx_keepalive	4
+../Core/UART_DMA/UART_DMA.c:350:13:put_u16	1
+../Core/UART_DMA/UART_DMA.c:381:6:proto_build_telem_frame	1
+../Core/UART_DMA/UART_DMA.c:414:19:proto_send_telem	2

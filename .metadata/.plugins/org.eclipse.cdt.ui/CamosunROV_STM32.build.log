@@ -1,0 +1,10 @@
+10:27:58 **** Build of configuration Debug for project CamosunROV_STM32 ****
+make -j12 all 
+arm-none-eabi-gcc "../Core/Src/main.c" -mcpu=cortex-m4 -std=gnu11 -g3 -DDEBUG -DUSE_HAL_DRIVER -DSTM32F446xx -c -I../Core/Inc -I../Core/UART_DMA -I../Core/Bar30 -I../Core/BNO055 -I../Core/Thermistor -I../Core/Motors -I../Core/TSYS01 -I../Core/MyUtils -I../Drivers/STM32F4xx_HAL_Driver/Inc -I../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy -I../Drivers/CMSIS/Device/ST/STM32F4xx/Include -I../Drivers/CMSIS/Include -O0 -ffunction-sections -fdata-sections -Wall -fstack-usage -fcyclomatic-complexity -MMD -MP -MF"Core/Src/main.d" -MT"Core/Src/main.o" --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -o "Core/Src/main.o"
+make: stat: \\TB204A-11\cUsers\C0550524\Capstone\CamosunROV_STM32\STM32F446RETX_FLASH.ld: Function not implemented
+make: *** No rule to make target '\\TB204A-11\cUsers\C0550524\Capstone\CamosunROV_STM32\STM32F446RETX_FLASH.ld', needed by 'CamosunROV_STM32.elf'.  Stop.
+make: *** Waiting for unfinished jobs....
+"make -j12 all" terminated with exit code 2. Build might be incomplete.
+
+10:28:08 Build Failed. 2 errors, 0 warnings. (took 9s.751ms)
+

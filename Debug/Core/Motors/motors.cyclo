@@ -1,0 +1,10 @@
+../Core/Motors/motors.c:49:24:throttleToPulse	5
+../Core/Motors/motors.c:82:6:motors_reinit	1
+../Core/Motors/motors.c:105:6:motor1	1
+../Core/Motors/motors.c:114:6:motor2	1
+../Core/Motors/motors.c:123:6:motor3	1
+../Core/Motors/motors.c:132:6:motor4	1
+../Core/Motors/motors.c:141:6:motor5	1
+../Core/Motors/motors.c:150:6:motor6	1
+../Core/Motors/motors.c:165:24:tiltToPulse	3
+../Core/Motors/motors.c:189:6:servo	1
