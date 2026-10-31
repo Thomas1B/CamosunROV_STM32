@@ -19,7 +19,7 @@ Built with STM32CubeIDE 2.2.0 / STM32CubeMX 6.18.1, firmware package **STM32Cube
 - [ ] Find each ESC's deadband range (all motors still use the default 1450 µs / 1550 µs onset values)
 - [ ] Full test of hardware prototype using Pilot UI
 - [ ] Full Test on Custom on PCB
-- [ ] Test IWDG on hardware (temporary `while (1) {}` in the main loop with thrusters running: chip resets within ~0.5 s, thrusters stop, board boots normally)
+- [ ] Test IWDG on hardware (temporary `while (1) {}` in the main loop: chip resets within ~0.5 s, board boots normally)
 - [x] Test status LEDs on hardware (lamp test, boot sequence, each pattern in the LED table)
 - [x] Finish Emergency Shutdown Function
 - [x] UART to/from Pi
@@ -74,7 +74,7 @@ Full details are in `Core/UART_DMA/UART_DMA.h`.
 
 Out-of-range values are rejected even with a good checksum. A valid frame is stored by the UART interrupt and applied by the main loop (`apply_reference()`), replacing the `SURFACE_PRESSURE` / `WATER_DENSITY` / `second_order_calculation` boot defaults. Reference frames are not commands: they don't reset the link timeout and aren't counted as lost commands.
 
-**STM32 → Pi telemetry (20 bytes, 50 Hz):**
+**STM32 → Pi telemetry (21 bytes, 50 Hz):**
 | Byte(s) | Field | Type | Units |
 |:---:|-------|:---:|-------|
 | 0 | START | u8 | `0xAA` |
@@ -88,12 +88,22 @@ Out-of-range values are rejected even with a good checksum. A valid frame is sto
 | 15–16 | pitch_x100 | i16 | ° ×100 |
 | 17 | leak | u8 | 0 = no leak, 1 = leak latched (stays 1 until the sensor is dry and a recover command succeeds) |
 | 18 | fault_flags | u8 | fault bits active now (see below) |
-| 19 | CHECKSUM | u8 | |
+| 19 | reset_cause | u8 | why the STM32 last restarted (see below). Information, not a fault |
+| 20 | CHECKSUM | u8 | |
 
 Values outside the field range are clamped by the sender (i16 ×100: −327.68 … 327.67, u16 ×100: 0 … 655.35, u16 ×10: 0 … 6553.5).
 
 - `pressure_x10` is the raw Bar30 reading, **not** minus the surface reference (that is applied to `depth_x100` only). It is scaled ×10 instead of ×100 because the Bar30 reads up to ~3000 kPa, which would overflow 16 bits at ×100. 0.1 kPa = 100 Pa ≈ 1 cm of water, the same resolution as depth.
-- The Pi side (`UART_DMA.py`) must expect the 20-byte frame; an 18-byte parser will fail every checksum.
+- The Pi side (`UART_DMA.py`) must expect the 21-byte frame; a 20-byte parser will fail every checksum.
+
+**Reset cause** (read once at boot from the RCC reset flags, then sent unchanged in every frame until the next reset, so the Pi sees it whenever it reconnects). This is an event, not a fault: by the time it is sent the board has already recovered, so it is kept out of `fault_flags`. The Pi should log a watchdog reset as a warning.
+| Value | Cause | Meaning |
+|:---:|-------|-------|
+| 0 | Power-on / brown-out | Normal power-up, or the supply dipped too low |
+| 1 | Watchdog (IWDG) | The main loop hung for ~0.5 s. Points to a firmware bug or a stuck bus; worth investigating |
+| 2 | Reset pin | Reset button, or the debugger/ST-LINK reset the chip |
+| 3 | Software reset | `NVIC_SystemReset()` (not used by the firmware at the moment) |
+| 4 | Other | Window watchdog or low-power reset (neither is used) |
 
 **Fault flags** (live: a bit clears when its fault recovers, except LEAK, which stays set until a recover command. While a sensor's bit is set, its telemetry field holds its last good value and should be ignored):
 | Bit | Value | Fault |
@@ -128,14 +138,14 @@ The command timeout only works while the main loop is running. If the STM32 itse
 - Prescaler 32, reload 500 → timeout ≈ 0.5 s. The LSI can be 17–47 kHz (datasheet), so the real timeout is about 0.34–0.94 s.
 - The slowest normal main-loop pass is ~100 ms (all three sensors re-initializing in `sensor_health_check()`), well under the 0.34 s minimum.
 - On a watchdog reset the PWM pins stop driving, so the ESCs lose their signal and stop. The board then boots normally with thrusters at 0 % (`failsafeActive = 1`) and waits for the Pi.
-- The watchdog reset is not reported as a fault.
+- The watchdog reset is not reported as a fault. It is sent to the Pi as `reset_cause = 1` in telemetry (see the UART protocol above).
 
 **How it is set up in the code:**
 | Where | What |
 |-------|------|
 | `.ioc` → Project Manager → Advanced Settings | `MX_IWDG_Init` has **Do Not Generate Function Call** ticked, so CubeMX doesn't start the watchdog before the boot sequence |
 | `main.c`, USER CODE BEGIN Init | `__HAL_DBGMCU_FREEZE_IWDG()`: watchdog pauses when the debugger halts the CPU (breakpoints don't cause resets) |
-| `main.c`, end of USER CODE BEGIN 2 | `MX_IWDG_Init()` is called after the lamp test, sensor start-up and PWM start, just before the main loop |
+| `main.c`, end of USER CODE BEGIN 2 | The reset cause is read from the RCC flags and the flags are cleared, then `MX_IWDG_Init()` is called after the lamp test, sensor start-up and PWM start, just before the main loop |
 | `main.c`, top of the main loop (USER CODE BEGIN 3) | `HAL_IWDG_Refresh(&hiwdg)`: the only refresh. At the top so the `continue`s in the leak branch still pass through it |
 
 **Rules when changing the code:**
