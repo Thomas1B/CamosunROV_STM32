@@ -1,7 +1,0 @@
-../Core/MyUtils/status_led.c:36:13:set_leds	1
-../Core/MyUtils/status_led.c:53:6:status_led_lamp_test	1
-../Core/MyUtils/status_led.c:64:6:status_led_boot_start	1
-../Core/MyUtils/status_led.c:74:6:status_led_boot_done	2
-../Core/MyUtils/status_led.c:90:6:status_led_show_leak	1
-../Core/MyUtils/status_led.c:117:9:status_led_pattern	7
-../Core/MyUtils/status_led.c:168:6:status_led_update	1
