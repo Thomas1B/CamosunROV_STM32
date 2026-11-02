@@ -173,9 +173,9 @@ static inline uint32_t tiltToPulse(int32_t tiltDeciDeg) {
 		tiltDeciDeg = -tiltDeciDeg;
 	}
 
-	/* -900 -> 1000 us, 0 -> 1500 us, +900 -> 2000 us (~0.556 us per 0.1 deg).
-	 * Mapped over the servo's full +/-90 deg range, so after the +/-45 deg
-	 * clamp above the pulse stays within 1250 us .. 1750 us. */
+	/* -450 -> 1000 us, 0 -> 1500 us, +450 -> 2000 us (~1.11 us per 0.1 deg).
+	 * Mapped over the servo's measured +/-45 deg travel (see motors.h), so
+	 * after the +/-45 deg clamp above the pulse stays within 1000 .. 2000 us. */
 	return lroundf(util_map((float) tiltDeciDeg, SERVO_PULSE_MIN_ANGLE_DC,
 	SERVO_PULSE_MAX_ANGLE_DC, SERVO_MIN_PULSE, SERVO_MAX_PULSE));
 }
@@ -183,7 +183,7 @@ static inline uint32_t tiltToPulse(int32_t tiltDeciDeg) {
 /**
  * @brief Sets camera tilt servo angle.
  * @param tiltDeciDeg Tilt in deci-degrees (x10), e.g. -155 = -15.5 deg.
- *        0 = level, + = up, clamped to -900..900 (-90.0..90.0 deg).
+ *        0 = level, + = up, clamped to -450..450 (-45.0..45.0 deg).
  *        This is the cam_tilt_dc value straight from the Pi command frame.
  */
 void servo(int32_t tiltDeciDeg) {

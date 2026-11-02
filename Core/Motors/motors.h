@@ -107,19 +107,26 @@ extern TIM_HandleTypeDef htim3; /* the real variable lives in main.c */
 
 /*
  * Commanded tilt limits (deci-degrees, x10). Commands outside this range
- * are clamped, so the camera stops at +/-45.0 deg (1250 us .. 1750 us).
- * Matches the cam_tilt_dc field in the UART protocol.
+ * are clamped, so the camera stops at +/-45.0 deg (1000 us .. 2000 us),
+ * which is the full travel this servo has inside the pulse limits above.
+ * Matches the cam_tilt_dc field in the UART protocol, and TILT_MIN/TILT_MAX
+ * (+/-45) in the command centre's config.py.
  */
-#define SERVO_MIN_ANGLE_DC   (-900.0f)
-#define SERVO_MAX_ANGLE_DC   ( 900.0f)
+#define SERVO_MIN_ANGLE_DC   (-450.0f)
+#define SERVO_MAX_ANGLE_DC   ( 450.0f)
 
 /*
- * DO NOT CHANGE
- * Servo angle (deci-degrees, x10) at SERVO_MIN_PULSE and SERVO_MAX_PULSE,
- * from the MG90S datasheet. Used only to convert angle -> pulse width.
+ * Servo angle (deci-degrees, x10) at SERVO_MIN_PULSE and SERVO_MAX_PULSE.
+ * Used only to convert angle -> pulse width.
+ *
+ * MEASURED, not from the datasheet: the MG90S datasheet claims +/-90 deg over
+ * 1000..2000 us, but on our servo a +60 deg command (1833 us) only tilted the
+ * camera ~30 deg (2026-11-02). Real travel is ~+/-45 deg over 1000..2000 us
+ * (~11.1 us per degree). With +/-90 here, every command moved half as far
+ * as asked. Re-measure if the servo is ever replaced.
  */
-#define SERVO_PULSE_MIN_ANGLE_DC (-900.0f)
-#define SERVO_PULSE_MAX_ANGLE_DC ( 900.0f)
+#define SERVO_PULSE_MIN_ANGLE_DC (-450.0f)
+#define SERVO_PULSE_MAX_ANGLE_DC ( 450.0f)
 
 /*
  * Camera tilt direction. The protocol defines + = camera tilts UP. If the
