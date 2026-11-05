@@ -20,6 +20,7 @@ Built with STM32CubeIDE 2.2.0 / STM32CubeMX 6.18.1, firmware package **STM32Cube
 - [ ] Full test of hardware prototype using Pilot UI
 - [ ] Full Test on Custom on PCB
 - [ ] Test IWDG on hardware (temporary `while (1) {}` in the main loop: chip resets within ~0.5 s, board boots normally)
+- [ ] Test I2C bus clear on hardware (scope on SCL/SDA: hold SDA LOW with a jumper to GND, release it, check up to 9 SCL pulses + STOP and that the sensors come back)
 - [x] Test status LEDs on hardware (lamp test, boot sequence, each pattern in the LED table)
 - [x] Finish Emergency Shutdown Function
 - [x] UART to/from Pi
@@ -152,6 +153,20 @@ The command timeout only works while the main loop is running. If the STM32 itse
 - Refresh only from the main loop, never from an interrupt or callback (an ISR would keep the watchdog happy while the main loop is stuck).
 - Nothing in the main loop may block for more than ~300 ms. `imu_start()` / `bno055_setup()` / `bno055_reset()` (700 ms BNO055 reset) and the BNO055 calibration loops are boot-only; never call them from the main loop.
 - Once started, the IWDG can't be stopped except by a reset.
+
+<hr>
+
+## I2C Bus Clear
+The IWDG resets only the STM32; the I2C sensors keep their power. If the reset lands in the middle of a read, a sensor can be left holding SDA LOW, waiting for SCL pulses that never come. I2C1 then sees a busy bus, all three sensors fault, and only a power cycle of the ROV would free it.
+
+`i2c1_bus_clear()` (UM10204 Rev. 7.0, section 3.1.16) fixes this: it takes PB6/PB7 as open-drain GPIO, sends up to nine SCL pulses until SDA is released, then sends a STOP. `HAL_I2C_Init()` hands the pins back to I2C1 afterwards.
+
+| Where | When it runs |
+|-------|------|
+| `MX_I2C1_Init()`, USER CODE BEGIN I2C1_Init 0 | Every I2C1 init: at boot and in `emergency_recover()` |
+| `sensor_health_check()` | IMU, DEPTH and TEMP all faulted at once **and** SDA reads LOW (a stuck bus, not three unplugged sensors) |
+
+The pulses run slower than 100 kHz (each half-period is at least 5 µs), which UM10204 allows. The whole routine takes well under 1 ms, far inside the IWDG timeout.
 
 <hr>
 

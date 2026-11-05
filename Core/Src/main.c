@@ -210,6 +210,7 @@ static void sensor_health_check(void);
 static led_link_state_t get_link_state(void);
 static uint8_t get_faults(void);
 static bool leak_detected(void);
+static void i2c1_bus_clear(void);
 
 /* USER CODE END PFP */
 
@@ -622,6 +623,10 @@ static void MX_ADC1_Init(void) {
 static void MX_I2C1_Init(void) {
 
 	/* USER CODE BEGIN I2C1_Init 0 */
+
+	// Free a sensor that may be holding SDA LOW (UM10204 3.1.16 bus clear).
+	// The pins are returned to I2C1 by HAL_I2C_Init() -> HAL_I2C_MspInit().
+	i2c1_bus_clear();
 
 	/* USER CODE END I2C1_Init 0 */
 
@@ -1044,6 +1049,78 @@ static void MX_GPIO_Init(void) {
 }
 
 /* USER CODE BEGIN 4 */
+
+/**
+ * @brief  I2C bus clear (UM10204 Rev. 7.0, section 3.1.16).
+ *
+ * If the STM32 resets (IWDG, ST-LINK, brown-out) in the middle of a read,
+ * the sensor keeps its power and can be left driving SDA LOW, waiting for
+ * SCL pulses that never come. The I2C peripheral then sees a busy bus and
+ * every transfer fails until the ROV is power-cycled.
+ *
+ * This takes PB6 (SCL) and PB7 (SDA) away from I2C1, sends up to nine SCL
+ * pulses (enough to finish any byte plus its ACK bit) until the sensor lets
+ * go of SDA, then sends a STOP so every device sees the bus as idle.
+ *
+ * @note  Called from MX_I2C1_Init() (USER CODE I2C1_Init 0), so it runs at
+ *        boot, in emergency_recover(), and from sensor_health_check() when
+ *        SDA is stuck. If I2C1 is running it is de-initialized first, so
+ *        HAL_I2C_Init() re-runs HAL_I2C_MspInit() and gives the pins back.
+ *        Takes well under 1 ms. The pulses run slower than 100 kHz, which
+ *        UM10204 allows (Standard-mode has no minimum clock frequency).
+ */
+static void i2c1_bus_clear(void) {
+	if (hi2c1.State != HAL_I2C_STATE_RESET) {
+		HAL_I2C_DeInit(&hi2c1); // pins back to GPIO, State = RESET
+	}
+
+	__HAL_RCC_GPIOB_CLK_ENABLE();
+
+	// Both lines HIGH (released) before they become outputs: open-drain, so
+	// "HIGH" just lets the 4.7 kOhm pull-ups hold the line up.
+	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6 | GPIO_PIN_7, GPIO_PIN_SET);
+
+	GPIO_InitTypeDef gpio = { 0 };
+	gpio.Pin = GPIO_PIN_6 | GPIO_PIN_7;
+	gpio.Mode = GPIO_MODE_OUTPUT_OD;
+	gpio.Pull = GPIO_NOPULL;
+	gpio.Speed = GPIO_SPEED_FREQ_LOW;
+	HAL_GPIO_Init(GPIOB, &gpio);
+
+	// Half a clock period: at least 5 us (each loop pass is >= 1 CPU cycle),
+	// so the clock is at most 100 kHz and tLOW / tHIGH stay >= 4.7 us / 4.0 us.
+	const uint32_t half_period = (SystemCoreClock / 1000000U) * 5U;
+	volatile uint32_t d;
+
+	for (uint8_t i = 0; i < 9U; i++) {
+		if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_7) == GPIO_PIN_SET) {
+			break; // SDA released, the sensor has let go
+		}
+		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, GPIO_PIN_RESET); // SCL LOW
+		for (d = 0; d < half_period; d++) {
+		}
+		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, GPIO_PIN_SET);   // SCL HIGH
+		for (d = 0; d < half_period; d++) {
+		}
+	}
+
+	// STOP condition: SDA goes LOW -> HIGH while SCL is HIGH.
+	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, GPIO_PIN_RESET); // SCL LOW
+	for (d = 0; d < half_period; d++) {
+	}
+	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_7, GPIO_PIN_RESET); // SDA LOW
+	for (d = 0; d < half_period; d++) {
+	}
+	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, GPIO_PIN_SET);   // SCL HIGH
+	for (d = 0; d < half_period; d++) {
+	}
+	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_7, GPIO_PIN_SET);   // SDA HIGH = STOP
+	for (d = 0; d < half_period; d++) {
+	}
+
+	// Pins stay as GPIO here; HAL_I2C_Init() switches them back to AF4 (I2C1).
+}
+
 int __io_putchar(int ch) {
 	ITM_SendChar(ch); // Send the character to the SWO console (for debugging)
 	return ch;
@@ -1338,6 +1415,17 @@ static void sensor_read_result(uint8_t faultBit, bool ok, uint8_t *failCount) {
  * but only when the sensor answers. A missing sensor NACKs straight away.
  */
 static void sensor_health_check(void) {
+	// All three I2C sensors down at once AND SDA held LOW = a stuck bus, not
+	// three unplugged sensors. Re-init I2C1, which runs the bus clear first.
+	// PB7's input register still reads the pin while it is in I2C (AF) mode.
+	const uint8_t i2cFaults = SYS_STATE_FAULT_IMU | SYS_STATE_FAULT_DEPTH
+			| SYS_STATE_FAULT_TEMP;
+	if ((sensorFaults & i2cFaults) == i2cFaults
+			&& HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_7) == GPIO_PIN_RESET) {
+		MX_I2C1_Init();
+		celsius_converting = false; // a conversion in progress was lost
+	}
+
 	if (sensorFaults & SYS_STATE_FAULT_DEPTH) {
 		if (MS5837_Init(&bar30)) {
 			sensorFaults &= (uint8_t) ~SYS_STATE_FAULT_DEPTH;
