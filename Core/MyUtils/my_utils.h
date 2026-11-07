@@ -27,4 +27,6 @@ bool has_fault(uint32_t current_fault, uint32_t faults_to_check);
 
 bool has_all_faults(uint32_t current_fault, uint32_t faults_to_check);
 
+void util_delay_us(uint32_t us);
+
 #endif /* MYUTILS_MY_UTILS_H_ */

@@ -10,6 +10,7 @@
  */
 
 #include "bar30.h"
+#include "my_utils.h" /* util_delay_us() */
 
 /* MS5837 command bytes, per datasheet */
 #define CMD_RESET           0x1E
@@ -18,12 +19,14 @@
 #define CMD_CONVERT_D1_BASE 0x40   /* pressure conversion,   OR with OSR bits */
 #define CMD_CONVERT_D2_BASE 0x50   /* temperature conversion, OR with OSR bits */
 
-/* Conversion wait time in ms, indexed to match MS5837_OSR_t values (>>1) */
-static const uint8_t conv_delay_ms[6] = { 1, 2, 3, 5, 10, 19 /* rounded up from datasheet max times, with margin */
-};
+/* Conversion wait time in us, indexed to match MS5837_OSR_t values (>>1).
+ * Datasheet maximums (0.6 / 1.17 / 2.28 / 4.54 / 9.04 / 18.08 ms) plus ~10 % margin.
+ * Microseconds, not HAL_Delay() ms: HAL_Delay(1) really waits 1 to 2 ms, so at
+ * OSR 256 (0.6 ms) each read used to wait up to 4 ms instead of 1.4 ms. */
+static const uint16_t conv_delay_us[6] = { 700, 1300, 2500, 5000, 10000, 20000 };
 
-static uint8_t get_conv_delay(MS5837_OSR_t osr) {
-	return conv_delay_ms[osr >> 1];
+static uint16_t get_conv_delay_us(MS5837_OSR_t osr) {
+	return conv_delay_us[osr >> 1];
 }
 
 /* Send a single command byte (no register address, MS5837 commands ARE the byte) */
@@ -209,12 +212,12 @@ static void calculate(MS5837_t *dev, uint32_t D1, uint32_t D2) {
 bool MS5837_Read(MS5837_t *dev) {
 	uint32_t D1 = 0; /* raw pressure ADC value */
 	uint32_t D2 = 0; /* raw temperature ADC value */
-	uint8_t delay_ms = get_conv_delay(dev->osr);
+	uint16_t delay_us = get_conv_delay_us(dev->osr);
 
 	/* --- Pressure conversion --- */
 	if (!send_command(dev, CMD_CONVERT_D1_BASE | dev->osr))
 		return false;
-	HAL_Delay(delay_ms);
+	util_delay_us(delay_us);
 	if (!send_command(dev, CMD_ADC_READ))
 		return false;
 	if (!read_adc(dev, &D1))
@@ -223,7 +226,7 @@ bool MS5837_Read(MS5837_t *dev) {
 	/* --- Temperature conversion --- */
 	if (!send_command(dev, CMD_CONVERT_D2_BASE | dev->osr))
 		return false;
-	HAL_Delay(delay_ms);
+	util_delay_us(delay_us);
 	if (!send_command(dev, CMD_ADC_READ))
 		return false;
 	if (!read_adc(dev, &D2))

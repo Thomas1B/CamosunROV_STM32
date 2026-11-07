@@ -9,6 +9,7 @@
 
 #include "my_utils.h"
 #include <stdbool.h>
+#include "main.h" /* CMSIS core: DWT cycle counter, SystemCoreClock */
 
 /**
  * @brief  Maps a value from one range to another (like Arduino's map()).
@@ -98,4 +99,30 @@ bool has_fault(uint32_t current_fault, uint32_t faults_to_check) {
 bool has_all_faults(uint32_t current_fault, uint32_t faults_to_check) {
 	// Result must match the mask exactly, all required bits must be set.
 	return (current_fault & faults_to_check) == faults_to_check;
+}
+
+/**
+ * @brief Busy-waits for `us` microseconds using the DWT cycle counter.
+ *
+ * For short sensor waits where HAL_Delay() is too coarse: HAL_Delay(1)
+ * really waits 1 to 2 ms (it can't tell where inside the current 1 ms tick
+ * it started, so it adds one tick to be safe). This waits the exact time.
+ *
+ * The counter is switched on the first time this is called. It counts CPU
+ * cycles (180 MHz) and wraps after ~23 s, so any wait up to a few seconds
+ * is fine. Interrupts still run during the wait; they only make it longer.
+ *
+ * @param us  Time to wait, in microseconds.
+ */
+void util_delay_us(uint32_t us) {
+	if ((DWT->CTRL & DWT_CTRL_CYCCNTENA_Msk) == 0U) {
+		CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk; /* enable DWT (also used by SWO) */
+		DWT->CYCCNT = 0U;
+		DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+	}
+	const uint32_t start = DWT->CYCCNT;
+	const uint32_t cycles = us * (SystemCoreClock / 1000000U);
+	while ((DWT->CYCCNT - start) < cycles) {
+		/* unsigned subtraction handles the counter wrapping around */
+	}
 }
