@@ -123,6 +123,11 @@ volatile SystemState_t system_state_t = SYS_STATE_FAULT_NONE; // current system 
 volatile uint16_t adc1_raw_buffer[ADC1_NUM_CHANNELS * ADC1_SAMPLES_PER_CHANNEL]; // array to store ADC1 raw data. / data[CH0, CH1, CH0, CH1, ..., CH0, CH1]
 
 bno055_vector_t imu_vec; // instance of the BNO055 sensor
+static const bno055_axis_map_t rovAxisMap = {
+	.x = BNO055_AXIS_Y, .x_sign = BNO055_AXIS_SIGN_POSITIVE,
+	.y = BNO055_AXIS_X, .y_sign = BNO055_AXIS_SIGN_NEGATIVE,
+	.z = BNO055_AXIS_Z, .z_sign = BNO055_AXIS_SIGN_POSITIVE,
+};
 bno055_calibration_data_t savedCalData = { .offset.accel = { .x = -7, .y = 6,
 		.z = -33 }, .offset.mag = { .x = -76, .y = -423, .z = -216 },
 		.offset.gyro = { .x = -2, .y = -3, .z = -1 }, .radius.accel = 1000,
@@ -1465,6 +1470,7 @@ static bool imu_start(void) {
 		return false;
 	}
 	// These needs to be here, since they write to device and can raise errors if called.
+	bno055_setAxisMap(rovAxisMap);
 	bno055_setOperationMode(BNO055_OPERATION_MODE_NDOF);
 	bno055_setCalibrationData(savedCalData);
 	return true;
