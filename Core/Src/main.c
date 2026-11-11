@@ -1498,6 +1498,8 @@ static bool imu_reconfigure(void) {
 	}
 
 	bno055_setOperationMode(BNO055_OPERATION_MODE_NDOF);
+	bno055_setAxisMap(rovAxisMap);
+	bno055_setOperationMode(BNO055_OPERATION_MODE_NDOF);
 	bno055_setCalibrationData(savedCalData); // goes to CONFIG, writes, back to NDOF
 
 	uint8_t mode = 0;
