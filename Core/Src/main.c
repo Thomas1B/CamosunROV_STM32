@@ -1473,6 +1473,7 @@ static bool imu_start(void) {
 	bno055_setAxisMap(rovAxisMap);
 	bno055_setOperationMode(BNO055_OPERATION_MODE_NDOF);
 	bno055_setCalibrationData(savedCalData);
+
 	return true;
 }
 
@@ -1497,7 +1498,7 @@ static bool imu_reconfigure(void) {
 		return false;
 	}
 
-	bno055_setOperationMode(BNO055_OPERATION_MODE_NDOF);
+	bno055_setOperationModeConfig();
 	bno055_setAxisMap(rovAxisMap);
 	bno055_setOperationMode(BNO055_OPERATION_MODE_NDOF);
 	bno055_setCalibrationData(savedCalData); // goes to CONFIG, writes, back to NDOF
