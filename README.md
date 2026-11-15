@@ -1,15 +1,8 @@
 # CamosunROV STM32
 
-This is the repository for the STM32 board used in the CamosunROV project.
-It contains the firmware and related resources for the STM32 microcontroller that controls the ROV's motors and sensors.
+Firmware for the CamosunROV's STM32F446RE (Cortex-M4F) board, which runs the motors and sensors. It talks to a Raspberry Pi 4 over UART4: the Pi sends thruster and camera-tilt commands at 50 Hz, and the STM32 sends telemetry back at 50 Hz.
 
-The STM32 chip used is the STM32F446RE, which is a high-performance ARM Cortex-M4F microcontroller.<br>
-Datasheet: [STM32F446RE Datasheet](https://www.st.com/en/microcontrollers-microprocessors/stm32f446/documentation.html)
-
-This custom STM32 board communicates with a Raspberry Pi 4 over UART (UART4, DMA in both directions).<br>
-The Pi sends thruster and camera-tilt commands at 50 Hz; the STM32 applies them and sends sensor telemetry back at 50 Hz.
-
-Built with STM32CubeIDE 2.2.0 / STM32CubeMX 6.18.1, firmware package **STM32Cube FW_F4 V1.28.3**.
+Built with STM32CubeIDE 2.2.0 / STM32CubeMX 6.18.1, firmware package **STM32Cube FW_F4 V1.28.3**. [STM32F446RE datasheet](https://www.st.com/en/microcontrollers-microprocessors/stm32f446/documentation.html)
 
 <hr>
 
@@ -17,10 +10,10 @@ Built with STM32CubeIDE 2.2.0 / STM32CubeMX 6.18.1, firmware package **STM32Cube
 - [ ] Test I2C Water Temperature Sensor firmware (waiting for sensor to arrive)
 - [ ] Test Recovery (restarts PWM generation, ADC reads, re-enables BKIN interrupts, etc.)
 - [ ] Find each ESC's deadband range (all motors still use the default 1450 µs / 1550 µs onset values)
-- [ ] Full test of hardware prototype using Pilot UI
 - [ ] Full Test on Custom on PCB
-- [ ] Test IWDG on hardware (temporary `while (1) {}` in the main loop: chip resets within ~0.5 s, board boots normally)
 - [ ] Test I2C bus clear on hardware (scope on SCL/SDA: hold SDA LOW with a jumper to GND, release it, check up to 9 SCL pulses + STOP and that the sensors come back)
+- [x] Full test of hardware prototype using Pilot UI
+- [x] Test IWDG on hardware (temporary `while (1) {}` in the main loop: chip resets within ~0.5 s, board boots normally)
 - [x] Test status LEDs on hardware (lamp test, boot sequence, each pattern in the LED table)
 - [x] Finish Emergency Shutdown Function
 - [x] UART to/from Pi
@@ -31,28 +24,22 @@ Built with STM32CubeIDE 2.2.0 / STM32CubeMX 6.18.1, firmware package **STM32Cube
 <hr>
 
 ## Features
-- Communicates with Raspberry Pi 4 via UART4 (115200 bit/s, 8N1, DMA RX with idle-line detection + DMA TX)
-- Controls 6 thrusters with automatic hardware cutoff on leak (TIM1/TIM8 break input)
+- 6 thrusters, cut off in hardware on a leak (TIM1/TIM8 break input)
 - Camera tilt servo (MG90S)
-- Leak detection (hardware break input, latched fault)
-- Command timeout failsafe: thrusters stop if no valid command for 150 ms
-- Independent watchdog (IWDG): resets the STM32 if the main loop hangs for ~0.5 s
+- Failsafes: thrusters stop after 150 ms with no valid command; IWDG resets the chip if the main loop hangs ~0.5 s
 - Sensors:
 	- Depth and absolute pressure — Blue Robotics Bar30 (MS5837-30BA)
 	- Water temperature — Blue Robotics Celsius (TSYS01)
 	- Orientation (heading, roll, pitch) — BNO055 IMU in NDOF mode
 	- Enclosure temperature — NTC thermistor on ADC
 	- Battery voltage — resistor divider on ADC
-- Live fault flags reported to the Pi in every telemetry frame (clear when the fault recovers; LEAK stays set)
-- Status LEDs (red / yellow / green)
-- SWO debug output (`printf` → ITM) every 1.5 s
+- Live fault flags in every telemetry frame
+- Status LEDs (red / yellow / green); SWO debug `printf` every 1.5 s
 
 <hr>
 
 ## UART Protocol (Pi ↔ STM32)
-UART4, 115200 bit/s, 8 data bits, no parity, 1 stop bit. All multi-byte values are little-endian.<br>
-Start byte = `0xAA`. Checksum = sum of all bytes between START and CHECKSUM, mod 256.<br>
-Full details are in `Core/UART_DMA/UART_DMA.h`.
+UART4, 115200 bit/s, 8N1, DMA RX (idle-line detection) + DMA TX. Multi-byte values are little-endian. Checksum = sum of the bytes between START and CHECKSUM, mod 256. Full details: `Core/UART_DMA/UART_DMA.h`.
 
 **Pi → STM32 command (11 bytes, 50 Hz):**
 | Byte(s) | Field | Type | Units / Range |
@@ -60,20 +47,20 @@ Full details are in `Core/UART_DMA/UART_DMA.h`.
 | 0 | START | u8 | `0xAA` |
 | 1–6 | motor1 … motor6 | i8 | % throttle, −100 … 100 |
 | 7–8 | cam_tilt_dc | i16 | camera tilt ×10 (deci-degrees), 0 = level, + = up |
-| 9 | recover | u8 | 0 = normal, 1 = clear a leak shutdown (see below) |
+| 9 | recover | u8 | 0 = normal, 1 = clear a leak shutdown (see [Recovery](#recovery)) |
 | 10 | CHECKSUM | u8 | |
 
-**Pi → STM32 reference (10 bytes, only when the values change):** the Bar30 depth settings from the command centre (CONNECT dialog / File ▸ Reference Values…). The Pi sends each new set 3 times, about 10 ms after a command frame, and again whenever the STM32 reconnects.
+**Pi → STM32 reference (10 bytes, on change):** Bar30 depth settings from the command centre. Sent 3 times (~10 ms after a command frame) and again whenever the STM32 reconnects.
 | Byte(s) | Field | Type | Units / Range |
 |:---:|-------|:---:|-------|
-| 0 | START_REF | u8 | `0xAB` (commands use `0xAA`) |
-| 1–4 | surface_hpa_x100 | u32 | surface pressure reference, hPa (= mbar) ×100, 80000 … 110000 |
+| 0 | START_REF | u8 | `0xAB` |
+| 1–4 | surface_hpa_x100 | u32 | surface pressure, hPa (= mbar) ×100, 80000 … 110000 |
 | 5–6 | density_x10 | u16 | water density, kg/m³ ×10, 9000 … 11000 |
 | 7 | flags | u8 | bit 0 = second-order calibration on |
-| 8 | ref_id | u8 | +1 each time the values change (the repeats share it) |
+| 8 | ref_id | u8 | +1 each time the values change (repeats share it) |
 | 9 | CHECKSUM | u8 | |
 
-Out-of-range values are rejected even with a good checksum. A valid frame is stored by the UART interrupt and applied by the main loop (`apply_reference()`), replacing the `SURFACE_PRESSURE` / `WATER_DENSITY` / `second_order_calculation` boot defaults. Reference frames are not commands: they don't reset the link timeout and aren't counted as lost commands.
+Out-of-range values are rejected even with a good checksum. The main loop applies valid frames (`apply_reference()`), replacing the boot defaults. Reference frames don't reset the link timeout and aren't counted as lost commands.
 
 **STM32 → Pi telemetry (21 bytes, 50 Hz):**
 | Byte(s) | Field | Type | Units |
@@ -87,138 +74,110 @@ Out-of-range values are rejected even with a good checksum. A valid frame is sto
 | 11–12 | heading_x100 | u16 | ° ×100 (0 … 36000) |
 | 13–14 | roll_x100 | i16 | ° ×100 |
 | 15–16 | pitch_x100 | i16 | ° ×100 |
-| 17 | leak | u8 | 0 = no leak, 1 = leak latched (stays 1 until the sensor is dry and a recover command succeeds) |
-| 18 | fault_flags | u8 | fault bits active now (see below) |
-| 19 | reset_cause | u8 | why the STM32 last restarted (see below). Information, not a fault |
+| 17 | leak | u8 | 0 = dry, 1 = leak latched (until dry + successful recover) |
+| 18 | fault_flags | u8 | active faults (see below) |
+| 19 | reset_cause | u8 | why the STM32 last restarted (see below) |
 | 20 | CHECKSUM | u8 | |
 
-Values outside the field range are clamped by the sender (i16 ×100: −327.68 … 327.67, u16 ×100: 0 … 655.35, u16 ×10: 0 … 6553.5).
+- Out-of-range values are clamped by the sender (i16 ×100: −327.68 … 327.67, u16 ×100: 0 … 655.35, u16 ×10: 0 … 6553.5).
+- `pressure_x10` is the raw Bar30 reading; the surface reference only affects `depth_x100`. It is ×10 because the Bar30 reads up to ~3000 kPa (0.1 kPa ≈ 1 cm of water, same resolution as depth).
+- The Pi parser (`UART_DMA.py`) must expect 21 bytes; a 20-byte parser fails every checksum.
 
-- `pressure_x10` is the raw Bar30 reading, **not** minus the surface reference (that is applied to `depth_x100` only). It is scaled ×10 instead of ×100 because the Bar30 reads up to ~3000 kPa, which would overflow 16 bits at ×100. 0.1 kPa = 100 Pa ≈ 1 cm of water, the same resolution as depth.
-- The Pi side (`UART_DMA.py`) must expect the 21-byte frame; a 20-byte parser will fail every checksum.
-
-**Reset cause** (read once at boot from the RCC reset flags, then sent unchanged in every frame until the next reset, so the Pi sees it whenever it reconnects). This is an event, not a fault: by the time it is sent the board has already recovered, so it is kept out of `fault_flags`. The Pi should log a watchdog reset as a warning.
+**Reset cause** — read once at boot from the RCC flags and sent in every frame until the next reset. An event, not a fault, so it isn't in `fault_flags`. The Pi should log a watchdog reset as a warning.
 | Value | Cause | Meaning |
 |:---:|-------|-------|
 | 0 | Power-on / brown-out | Normal power-up, or the supply dipped too low |
-| 1 | Watchdog (IWDG) | The main loop hung for ~0.5 s. Points to a firmware bug or a stuck bus; worth investigating |
-| 2 | Reset pin | Reset button, or the debugger/ST-LINK reset the chip |
-| 3 | Software reset | `NVIC_SystemReset()` (not used by the firmware at the moment) |
-| 4 | Other | Window watchdog or low-power reset (neither is used) |
+| 1 | Watchdog (IWDG) | Main loop hung ~0.5 s: firmware bug or stuck bus, worth investigating |
+| 2 | Reset pin | Reset button or debugger/ST-LINK |
+| 3 | Software reset | `NVIC_SystemReset()` (not used yet) |
+| 4 | Other | Window watchdog or low-power reset (neither used) |
 
-**Fault flags** (live: a bit clears when its fault recovers, except LEAK, which stays set until a recover command. While a sensor's bit is set, its telemetry field holds its last good value and should be ignored):
+**Fault flags** — live: a bit clears when the fault recovers, except LEAK, which needs a recover command. While a sensor's bit is set, its telemetry holds the last good value and should be ignored.
 | Bit | Value | Fault |
 |:---:|:---:|-------|
 | 0 | `0x01` | LEAK |
 | 1 | `0x02` | IMU (BNO055 not responding, or reset itself) |
 | 2 | `0x04` | DEPTH (Bar30 not responding) |
 | 3 | `0x08` | TEMP (TSYS01 not responding) |
-| 4 | `0x10` | UART (Pi link lost: command timeout after link was established) |
+| 4 | `0x10` | UART (command timeout after the link was established) |
+
+A sensor faults after 3 failed reads in a row (60 ms). Faulted sensors are re-initialized every 1 s, and the IMU's operation mode is checked every 1 s to catch self-resets.
 
 <hr>
 
 ## Leak / Emergency Shutdown
-- The leak sensor drives the TIM1 and TIM8 break inputs (PB12, PA6, active HIGH). On a leak the hardware immediately forces all six thruster PWM outputs off — no software involved.
-- The break ISR only latches `SYS_STATE_FAULT_LEAK` and disables further break interrupts. `emergency_shutdown()` in the main loop then stops everything except the status LEDs and UART4: thruster and camera-servo PWM stopped and pins held LOW, ADC + TIM2 stopped, I2C1 de-initialized, break and ADC DMA interrupts disabled. Red LED solid (LEAK pattern).
-- Telemetry keeps running at 50 Hz so the Pi sees `leak = 1` and the LEAK fault flag. Sensor fields are frozen at their last reading (0 if the leak was present at boot).
-- Motor and tilt values from the Pi are ignored during a leak.
-- If a leak is present at boot, the board skips sensor start-up and goes straight to the shutdown state (UART still runs).
+- The leak sensor drives the TIM1 and TIM8 break inputs (PB12, PA6, active HIGH, wired together). The hardware forces all six thruster outputs off immediately.
+- The break ISR only latches `SYS_STATE_FAULT_LEAK`. `emergency_shutdown()` in the main loop then stops everything except the LEDs and UART4: thruster and servo PWM off with pins LOW, ADC + TIM2 stopped, I2C1 de-initialized, break and ADC DMA interrupts disabled.
+- Telemetry continues with `leak = 1`; sensor fields are frozen (0 if the leak was present at boot). Motor and tilt commands are ignored.
+- A leak at boot skips sensor start-up and goes straight to shutdown.
 
 ### Recovery
-- The Pi sets `recover` = 1 in the command frame. It acts on the **0 → 1 change** only, so send 0 normally, then 1 (holding it at 1 is fine). To retry, send 0 again, then 1.
-- Refused while the leak sensor is still wet (PB12 or PA6 HIGH): nothing changes and the Pi keeps seeing `leak = 1`.
-- On success `emergency_recover()` restarts thruster PWM at 0 % and the servo at level, restarts the ADC, restarts I2C1 and re-initializes the sensors within 1 s (yellow LED until they answer), then re-arms leak detection.
-- Thrusters stay at 0 % until the Pi sends a new motor command. The ESCs may need a moment at neutral to re-arm.
+- Triggered by a **0 → 1 change** of `recover` (holding 1 is fine; to retry, send 0 then 1).
+- Refused while PB12 or PA6 is still HIGH.
+- On success, `emergency_recover()` restarts thruster PWM at 0 %, the servo at level, the ADC and I2C1, re-initializes the sensors within 1 s (yellow LED until they answer), then re-arms leak detection.
+- Thrusters stay at 0 % until the next motor command; the ESCs may need a moment at neutral to re-arm.
 
 <hr>
 
 ## Watchdog (IWDG)
-The command timeout only works while the main loop is running. If the STM32 itself hangs (HardFault, a stuck loop, a jammed I2C bus), the timers keep outputting the last PWM pulse and the thrusters keep running. The independent watchdog covers this case.
+The command timeout needs the main loop running. If the STM32 hangs (HardFault, stuck loop, jammed I2C bus), the timers keep outputting the last pulse and the thrusters keep running; the IWDG covers this.
 
-- Runs from the internal LSI clock (~32 kHz), so it keeps working even if the main clocks fail.
-- Prescaler 32, reload 500 → timeout ≈ 0.5 s. The LSI can be 17–47 kHz (datasheet), so the real timeout is about 0.34–0.94 s.
-- The slowest normal main-loop pass is ~100 ms (all three sensors re-initializing in `sensor_health_check()`), well under the 0.34 s minimum.
-- On a watchdog reset the PWM pins stop driving, so the ESCs lose their signal and stop. The board then boots normally with thrusters at 0 % (`failsafeActive = 1`) and waits for the Pi.
-- The watchdog reset is not reported as a fault. It is sent to the Pi as `reset_cause = 1` in telemetry (see the UART protocol above).
+- LSI clock (~32 kHz), prescaler 32, reload 500 → ≈ 0.5 s. LSI tolerance (17–47 kHz) gives 0.34–0.94 s. The slowest normal loop pass is ~100 ms.
+- On reset the PWM pins stop, so the ESCs stop. The board reboots with thrusters at 0 % (`failsafeActive = 1`) and reports `reset_cause = 1`.
 
-**How it is set up in the code:**
 | Where | What |
 |-------|------|
-| `.ioc` → Project Manager → Advanced Settings | `MX_IWDG_Init` has **Do Not Generate Function Call** ticked, so CubeMX doesn't start the watchdog before the boot sequence |
-| `main.c`, USER CODE BEGIN Init | `__HAL_DBGMCU_FREEZE_IWDG()`: watchdog pauses when the debugger halts the CPU (breakpoints don't cause resets) |
-| `main.c`, end of USER CODE BEGIN 2 | The reset cause is read from the RCC flags and the flags are cleared, then `MX_IWDG_Init()` is called after the lamp test, sensor start-up and PWM start, just before the main loop |
-| `main.c`, top of the main loop (USER CODE BEGIN 3) | `HAL_IWDG_Refresh(&hiwdg)`: the only refresh. At the top so the `continue`s in the leak branch still pass through it |
+| `.ioc` → Project Manager → Advanced Settings | `MX_IWDG_Init` set to **Do Not Generate Function Call**, so the watchdog doesn't start before the boot sequence |
+| `main.c`, USER CODE BEGIN Init | `__HAL_DBGMCU_FREEZE_IWDG()`: breakpoints don't cause resets |
+| `main.c`, end of USER CODE BEGIN 2 | Reset cause read and RCC flags cleared; `MX_IWDG_Init()` called just before the main loop |
+| `main.c`, top of main loop (USER CODE BEGIN 3) | `HAL_IWDG_Refresh(&hiwdg)`: the only refresh, placed so the leak branch's `continue`s still reach it |
 
-**Rules when changing the code:**
-- Refresh only from the main loop, never from an interrupt or callback (an ISR would keep the watchdog happy while the main loop is stuck).
-- Nothing in the main loop may block for more than ~300 ms. `imu_start()` / `bno055_setup()` / `bno055_reset()` (700 ms BNO055 reset) and the BNO055 calibration loops are boot-only; never call them from the main loop.
-- Once started, the IWDG can't be stopped except by a reset.
+**Rules:**
+- Refresh only from the main loop, never from an ISR or callback.
+- Nothing in the main loop may block > ~300 ms. `imu_start()`, `bno055_setup()`, `bno055_reset()` (700 ms) and the BNO055 calibration loops are boot-only.
+- Once started, the IWDG can only be stopped by a reset.
 
 <hr>
 
 ## I2C Bus Clear
-The IWDG resets only the STM32; the I2C sensors keep their power. If the reset lands in the middle of a read, a sensor can be left holding SDA LOW, waiting for SCL pulses that never come. I2C1 then sees a busy bus, all three sensors fault, and only a power cycle of the ROV would free it.
+An IWDG reset doesn't power-cycle the sensors. A reset mid-read can leave a sensor holding SDA LOW, so I2C1 sees a busy bus and all three sensors fault until the ROV is power-cycled.
 
-`i2c1_bus_clear()` (UM10204 Rev. 7.0, section 3.1.16) fixes this: it takes PB6/PB7 as open-drain GPIO, sends up to nine SCL pulses until SDA is released, then sends a STOP. `HAL_I2C_Init()` hands the pins back to I2C1 afterwards.
+`i2c1_bus_clear()` (UM10204 Rev. 7.0, §3.1.16) drives PB6/PB7 as open-drain GPIO, clocks up to nine SCL pulses until SDA releases, then sends a STOP; `HAL_I2C_Init()` returns the pins to I2C1. Pulses are below 100 kHz (half-period ≥ 5 µs); the routine takes well under 1 ms.
 
 | Where | When it runs |
 |-------|------|
-| `MX_I2C1_Init()`, USER CODE BEGIN I2C1_Init 0 | Every I2C1 init: at boot and in `emergency_recover()` |
-| `sensor_health_check()` | IMU, DEPTH and TEMP all faulted at once **and** SDA reads LOW (a stuck bus, not three unplugged sensors) |
-
-The pulses run slower than 100 kHz (each half-period is at least 5 µs), which UM10204 allows. The whole routine takes well under 1 ms, far inside the IWDG timeout.
+| `MX_I2C1_Init()`, USER CODE BEGIN I2C1_Init 0 | Every I2C1 init (boot and `emergency_recover()`) |
+| `sensor_health_check()` | IMU, DEPTH and TEMP all faulted **and** SDA reads LOW |
 
 <hr>
 
 ## Status LEDs
-Each LED shows one thing, so statuses combine (e.g. green blinking + yellow solid = waiting for the Pi with a sensor fault).
+Each LED shows one thing, so statuses combine (e.g. green blinking + yellow solid = waiting for Pi with a sensor fault).
 
-**Power-up:**
-1. Lamp test: all three on for ~1 s
-2. Green solid while the sensors initialize (solid, so it can't be mistaken for "Waiting for Pi")
-3. Fast green flicker (0.6 s): boot finished
-4. Switch to the status table below
-
-If a leak is present at boot, the power-up sequence is skipped and the red LED stays on (LEAK).
+**Power-up:** lamp test (all on ~1 s) → green solid while sensors initialize → fast green flicker (0.6 s) → status table. A leak at boot skips this and shows red.
 
 | Status | Green | Yellow | Red |
 |-------|:---:|:---:|:---:|
 | Pi connected | ● | ○ | ○ |
-| Waiting for Pi | ◐ | ○ | ○ |
-| Pi link lost | ○ | ○ | ◐ |
+| Waiting for Pi (no valid command yet) | ◐ | ○ | ○ |
+| Pi link lost (commands timed out, 150 ms) | ○ | ○ | ◐ |
 | I2C sensor fault | ○ | ● | ○ |
-| **LEAK** | ○ | ○ | ● |
+| **LEAK** (overrides all, until recover) | ○ | ○ | ● |
 | STM32 not running | ○ | ○ | ○ |
 
-● = solid, ◐ = blinking 1 Hz (500 ms on / 500 ms off), ○ = off. Power is indicated by separate LEDs connected to the 3V3 and 5V rails.
+● = solid, ◐ = 1 Hz blink (500 ms on / off), ○ = off. Separate LEDs on the 3V3 and 5V rails show power.
 
-- Solid red = LEAK, blinking red = link lost.
-- LEAK overrides everything (only red is lit) and stays on until a recover command.
-- Sensor faults and link state are live: the LEDs clear when the fault recovers.
-- A sensor is faulted after 3 failed reads in a row (60 ms). Faulted sensors are re-initialized every 1 s; the IMU's operation mode is also checked every 1 s to catch it resetting itself.
-- "Waiting" = booted, no valid command from the Pi yet. "Link lost" = commands were received, then timed out (150 ms).
-- The blink is timed from `HAL_GetTick()` in `status_led_update()` (non-blocking), so green and red always blink in step.
-- The SWO debug print shows which sensor is faulted, e.g. `Faults: 0x04 [ DEPTH ]`.
-- If the firmware hangs, the LEDs freeze on their last pattern (a blinking LED stops blinking, either on or off) until the watchdog resets the chip (~0.5 s), after which the power-up sequence runs again.
-
+- Sensor and link states are live and clear on recovery. The SWO print names the fault, e.g. `Faults: 0x04 [ DEPTH ]`.
+- Blinking is non-blocking (`HAL_GetTick()` in `status_led_update()`), so green and red blink in step.
+- If the firmware hangs, the LEDs freeze until the watchdog resets the chip (~0.5 s) and the power-up sequence runs again.
 
 <hr>
 
 ## Part Notes
-- The ESC used in this project expects a max 500 Hz PWM signal with the following specs:
-	- Stop = 1500 µs
-	- Forward (max) = 1900 µs
-	- Reverse (max) = 1100 µs
-
-[Afro30A - Datasheet](https://arduino.ua/docs/AfroESC30A.pdf)
-
-If possible, upgrade to [BlueRobotics BasicESC](https://bluerobotics.com/store/thrusters/speed-controllers/besc30-r3/).<br>
-Expects the same signal and specs as described above, so no change in firmware.
-
-- Per-motor deadband (onset) pulses are set in `Core/Motors/motors.h` (`MOTORn_REVERSE_ONSET_PULSE` / `MOTORn_FORWARD_ONSET_PULSE`).
-
-- Camera tilt servo: MG90S, 50 Hz, 1000 µs = −90°, 1500 µs = centre, 2000 µs = +90°.<br>
-  Commanded range is clamped to ±45.0°. Set `SERVO_REVERSED` to 1 in `motors.h` if + tilts the camera down.
+- **ESC** ([Afro30A datasheet](https://arduino.ua/docs/AfroESC30A.pdf)): max 500 Hz PWM; stop 1500 µs, full forward 1900 µs, full reverse 1100 µs. The [Blue Robotics BasicESC](https://bluerobotics.com/store/thrusters/speed-controllers/besc30-r3/) is a drop-in upgrade with no firmware change. Per-motor deadband (onset) pulses: `MOTORn_REVERSE_ONSET_PULSE` / `MOTORn_FORWARD_ONSET_PULSE` in `Core/Motors/motors.h`.
+- **Camera tilt servo** (MG90S): 50 Hz, 1000 µs = −90°, 1500 µs = centre, 2000 µs = +90°. Clamped to ±45.0°. Set `SERVO_REVERSED` to 1 in `motors.h` if + tilts down.
+- **Battery divider:** R1 = 100 kΩ, R2 = 18 kΩ (`BATTERY_MONITOR_R1/R2` in `main.c`). V<sub>batt</sub> = V<sub>ADC</sub> × (R1 + R2) / R2.
+- **Enclosure thermistor:** Vishay NTCLE100E3103JB0 (10 kΩ at 25 °C) with a 10 kΩ divider resistor.
 
 I2C devices (all on I2C1, 100 kHz):
 
@@ -228,59 +187,52 @@ I2C devices (all on I2C1, 100 kHz):
 | Bar30 (MS5837-30BA) | `0x76` |
 | Celsius (TSYS01) | `0x77` |
 
+**Bar30 depth settings:** boot defaults in `main.c` (USER CODE BEGIN PD), overridden at run time by reference frames from the command centre. Keep them in sync with the command centre's `config.py`.
 
-**Depth sensor (Bar30) settings**: boot defaults in `main.c` (under USER CODE BEGIN PD). The command centre can change all three at run time (sent through the Pi as a reference frame, see the UART protocol above). After a reset the defaults apply again until the Pi re-sends them, which it does whenever the STM32 reconnects. Keep the defaults the same as the command centre's (`config.py`):
-
-| Setting | Set with | Current value | Notes |
+| Setting | Set with | Default | Notes |
 |---------|----------|:---:|-------|
-| Surface reference | `SURFACE_PRESSURE` | 1013.25 mbar (101 325 Pa, standard sea-level pressure) | Pressure read as 0 m depth (affects `depth_x100` only, not `pressure_x10`) |
-| Water density | `WATER_DENSITY` | 1000.00 kg/m³ (freshwater) | Use 1025 kg/m³ for saltwater (average). Affects `depth_x100` only |
-| Second-order compensation | `second_order_calculation` | `true` (on) | Extra temperature correction below 20 °C. Set `false` to disable |
-
-- Battery monitor divider: R1 = 100 kΩ, R2 = 18 kΩ (`BATTERY_MONITOR_R1/R2` in `main.c`). V<sub>batt</sub> = V<sub>ADC</sub> × (R1 + R2) / R2.
-
-- Enclosure thermistor: Vishay NTCLE100E3103JB0 (10 kΩ at 25 °C) with a 10 kΩ divider resistor.
+| Surface reference | `SURFACE_PRESSURE` | 1013.25 mbar (101 325 Pa) | Pressure read as 0 m; affects `depth_x100` only |
+| Water density | `WATER_DENSITY` | 1000.00 kg/m³ (fresh) | ~1025 kg/m³ for salt; affects `depth_x100` only |
+| Second-order compensation | `second_order_calculation` | `true` | Extra temperature correction below 20 °C |
 
 <hr>
 
 ## STM32 Configuration & Pins
-These are set in STM32CubeMX (`CamosunROV_STM32.ioc`).
+Set in STM32CubeMX (`CamosunROV_STM32.ioc`). HCLK 180 MHz (HSE 8 MHz → PLL); APB1 45 MHz (timers 90 MHz), APB2 90 MHz (timers 180 MHz).
 
-The HCLK is set to 180 MHz (HSE 8 MHz → PLL). APB1 = 45 MHz (timers 90 MHz), APB2 = 90 MHz (timers 180 MHz).
-
-Programming Pins (SWD on PCB):
-| SWD Pin | STM32 Pin | Function | Notes |
-|:-------:|:---------:|:--------:|-------|
-| 1 | 3V3 | Target Supply Sense | Debug/programming |
-| 2 | PA14 | SWCLK | Debug/programming |
-| 3 | GND | Ground | Debug/programming |
-| 4 | PA13 | SWDIO | Debug/programming |
-| 5 | NRST | Reset | Debug/programming |
-| 6 | PB3 | SWO (optional) | Trace/debug output (`printf`) |
+Programming pins (SWD on PCB):
+| SWD Pin | STM32 Pin | Function |
+|:-------:|:---------:|:--------:|
+| 1 | 3V3 | Target supply sense |
+| 2 | PA14 | SWCLK |
+| 3 | GND | Ground |
+| 4 | PA13 | SWDIO |
+| 5 | NRST | Reset |
+| 6 | PB3 | SWO (optional, `printf` trace) |
 
 Pin configuration:
 | STM32 Pin | Function | Peripheral / AF | Notes |
 |:---:|:--------:|:----------------:|-------|
-| PA11 | Motor 1 PWM | TIM1_CH4 | ~300 Hz signal |
+| PA11 | Motor 1 PWM | TIM1_CH4 | ~300 Hz |
 | PA10 | Motor 2 PWM | TIM1_CH3 | |
 | PA9  | Motor 3 PWM | TIM1_CH2 | |
 | PA8  | Motor 4 PWM | TIM1_CH1 | |
-| PC9  | Motor 5 PWM | TIM8_CH4 | ~300 Hz signal |
+| PC9  | Motor 5 PWM | TIM8_CH4 | ~300 Hz |
 | PC8  | Motor 6 PWM | TIM8_CH3 | |
-| PB0  | Camera Tilt Servo PWM | TIM3_CH3 | ~50 Hz signal |
-| PA6  | Leak Sensor | TIM8_BKIN | auto terminates TIM8 PWM signals |
-| PB12 | Leak Sensor | TIM1_BKIN | auto terminates TIM1 PWM signals |
+| PB0  | Camera Tilt Servo PWM | TIM3_CH3 | ~50 Hz |
+| PA6  | Leak Sensor | TIM8_BKIN | cuts TIM8 PWM |
+| PB12 | Leak Sensor | TIM1_BKIN | cuts TIM1 PWM |
 | PC10 | UART TX → Pi RX | UART4_TX | DMA1 Stream 4 |
 | PC11 | UART RX ← Pi TX | UART4_RX | DMA1 Stream 2, idle-line detection |
 | PB6  | I2C SCL | I2C1_SCL | BNO055, Bar30, TSYS01 |
 | PB7  | I2C SDA | I2C1_SDA | BNO055, Bar30, TSYS01 |
-| PA0  | Battery Monitor | ADC1_IN0 | Uses DMA |
-| PA1  | Internal Temperature | ADC1_IN1 | Uses DMA |
+| PA0  | Battery Monitor | ADC1_IN0 | DMA |
+| PA1  | Internal Temperature | ADC1_IN1 | DMA |
 | PC0  | Red LED | GPIO Output | |
 | PC1  | Green LED | GPIO Output | |
 | PC2  | Yellow LED | GPIO Output | |
-| PA2  | USART2_TX | USART2 | Configured, not used by firmware |
-| PA3  | USART2_RX | USART2 | Configured, not used by firmware |
+| PA2  | USART2_TX | USART2 | Configured, unused |
+| PA3  | USART2_RX | USART2 | Configured, unused |
 
 Timer configuration:
 | Timer | Use | Prescaler (PSC) | Period (ARR) | Output |
@@ -291,7 +243,6 @@ Timer configuration:
 | TIM2 | ADC trigger (TRGO) | 90 | 1000 | ~1 kHz |
 | IWDG | Watchdog (LSI ~32 kHz) | 32 | 500 | ~0.5 s timeout |
 
-*Note:*<br>
-- *PA6 and PB12 are physically connected, hence a leak triggers HIGH on both.*
-- *ADC sampling rate is controlled by TIM2 (16 samples per channel are averaged), conversion rate is still controlled by the APB2 frequency.*
-- *The Pi's UART pins are 3.3 V logic, same as the STM32 — connect directly, TX ↔ RX crossed, with a common ground.*
+*Notes:*
+- *ADC sampling is paced by TIM2 (16 samples per channel averaged); conversion speed is set by the APB2 clock.*
+- *The Pi's UART is 3.3 V logic like the STM32: connect directly, TX ↔ RX crossed, common ground.*
