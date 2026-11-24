@@ -53,9 +53,31 @@ extern TIM_HandleTypeDef htim3; /* the real variable lives in main.c */
 #define MOTOR6_CHANNEL  TIM_CHANNEL_3
 
 /*
- * DO NOT CHANGE
- * Fixed pulse limits (microseconds), same for every motor -- these are the ESC's
- * hardware min/max/neutral pulse width, not per-motor tuning.
+ * Pulse limits (microseconds), same for every motor.
+ *
+ * MOTOR_NEUTRAL_PULSE is the ESC's stop point -- DO NOT CHANGE.
+ *
+ * MOTOR_MIN_PULSE / MOTOR_MAX_PULSE are hard output limits. The code never
+ * sends a pulse outside them, so a 100 % command from the command centre
+ * is capped to the real throttle shown below. The ESC hardware range is
+ * 1100 .. 1900 us; do not set limits outside it.
+ *
+ * Real throttle at a given pulse width (ESC is linear about 1500 us):
+ *
+ *   pulse (us)   = 1500 + 4 * throttle (%)
+ *   throttle (%) = (pulse - 1500) / 4
+ *
+ *        REVERSE LIMIT                    FORWARD LIMIT
+ *   MIN_PULSE (us) | Real cap (%)    MAX_PULSE (us) | Real cap (%)
+ *   ---------------+-------------    ---------------+-------------
+ *        1100      |   -100.0             1800      |    75.0
+ *        1120      |    -95.0             1820      |    80.0
+ *        1140      |    -90.0             1840      |    85.0
+ *        1160      |    -85.0             1860      |    90.0
+ *        1180      |    -80.0             1880      |    95.0
+ *        1200      |    -75.0             1900      |   100.0
+ *
+ *   e.g. to cap forward thrust at 80 %, set MOTOR_MAX_PULSE to 1820.0f.
  */
 #define MOTOR_MIN_PULSE      1100.0f
 #define MOTOR_NEUTRAL_PULSE  1500.0f
