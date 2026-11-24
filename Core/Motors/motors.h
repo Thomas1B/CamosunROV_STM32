@@ -58,9 +58,12 @@ extern TIM_HandleTypeDef htim3; /* the real variable lives in main.c */
  * MOTOR_NEUTRAL_PULSE is the ESC's stop point -- DO NOT CHANGE.
  *
  * MOTOR_MIN_PULSE / MOTOR_MAX_PULSE are hard output limits. The code never
- * sends a pulse outside them, so a 100 % command from the command centre
- * is capped to the real throttle shown below. The ESC hardware range is
- * 1100 .. 1900 us; do not set limits outside it.
+ * sends a pulse outside them. Commands are SCALED: the full
+ * joystick range is spread between the onset pulse and the limit, so a
+ * 100 % command gives exactly the limit (the real throttle shown below)
+ * and smaller commands shrink proportionally. No dead zone at the end of
+ * the stick. The ESC hardware range is 1100 .. 1900 us; do not set limits
+ * outside it.
  *
  * Real throttle at a given pulse width (ESC is linear about 1500 us):
  *
@@ -84,9 +87,9 @@ extern TIM_HandleTypeDef htim3; /* the real variable lives in main.c */
  *
  *   e.g. to cap forward thrust at 80 %, set MOTOR_MAX_PULSE to 1820.0f.
  */
-#define MOTOR_MIN_PULSE      1100.0f
-#define MOTOR_NEUTRAL_PULSE  1500.0f
-#define MOTOR_MAX_PULSE      1900.0f
+#define MOTOR_MIN_PULSE      1100.0f  	// 1100.0f is the ESC's hardware minimum, DO NOT GO LOWER
+#define MOTOR_NEUTRAL_PULSE  1500.0f 	// 1500.0f is the ESC's stop point, DO NOT CHANGE
+#define MOTOR_MAX_PULSE      1900.0f 	// 1900.0f is the ESC's hardware maximum, DO NOT GO HIGHER
 
 /*
  * Per-motor pulse calibration, in microseconds.
