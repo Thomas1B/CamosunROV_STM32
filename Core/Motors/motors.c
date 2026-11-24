@@ -58,12 +58,12 @@ static inline uint32_t throttleToPulse(const MotorPulseLimits *limits,
 		return (uint32_t) MOTOR_NEUTRAL_PULSE;
 	} else if (throttlePercent > 0) {
 		return lroundf(
-				util_map(throttlePercent, 0.0f, 100.0f,
+				util_map(throttlePercent, 1.0f, 100.0f,
 						limits->forwardOnsetPulse,
 						MOTOR_MAX_PULSE));
 	} else {
 		return lroundf(
-				util_map(throttlePercent, -100.0f, 0.0f, MOTOR_MIN_PULSE,
+				util_map(throttlePercent, -100.0f, -1.0f, MOTOR_MIN_PULSE,
 						limits->reverseOnsetPulse));
 	}
 }
