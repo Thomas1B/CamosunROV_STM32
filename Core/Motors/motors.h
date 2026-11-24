@@ -87,9 +87,9 @@ extern TIM_HandleTypeDef htim3; /* the real variable lives in main.c */
  *
  *   e.g. to cap forward thrust at 80 %, set MOTOR_MAX_PULSE to 1820.0f.
  */
-#define MOTOR_MIN_PULSE      1100.0f  	// 1100.0f is the ESC's hardware minimum, DO NOT GO LOWER
+#define MOTOR_MIN_PULSE      1200.0f  	// 1100.0f is the ESC's hardware minimum, DO NOT GO LOWER
 #define MOTOR_NEUTRAL_PULSE  1500.0f 	// 1500.0f is the ESC's stop point, DO NOT CHANGE
-#define MOTOR_MAX_PULSE      1900.0f 	// 1900.0f is the ESC's hardware maximum, DO NOT GO HIGHER
+#define MOTOR_MAX_PULSE      1800.0f 	// 1900.0f is the ESC's hardware maximum, DO NOT GO HIGHER
 
 /*
  * Per-motor pulse calibration, in microseconds.
