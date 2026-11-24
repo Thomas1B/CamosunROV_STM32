@@ -65,7 +65,8 @@ extern TIM_HandleTypeDef htim3; /* the real variable lives in main.c */
  * the stick. The ESC hardware range is 1100 .. 1900 us; do not set limits
  * outside it.
  *
- * Real throttle at a given pulse width (ESC is linear about 1500 us):
+ * Real ESC throttle at a given pulse width. This is how the ESC responds
+ * to a pulse, not the joystick -> pulse mapping (ESC is linear about 1500 us):
  *
  *   pulse (us)   = 1500 + 4 * throttle (%)
  *   throttle (%) = (pulse - 1500) / 4
@@ -95,8 +96,10 @@ extern TIM_HandleTypeDef htim3; /* the real variable lives in main.c */
  * Per-motor pulse calibration, in microseconds.
  *
  * REVERSE_ONSET / FORWARD_ONSET mark the ESC's "deadband" boundary either side of
- * neutral -- the pulse width at the smallest throttle command (+/-1%) that still
- * moves the motor. Push these too close to NEUTRAL_PULSE and small throttle values
+ * neutral -- the pulse width where the motor starts to move. The throttle
+ * scaling starts here: +1 % sends exactly FORWARD_ONSET and -1 % sends exactly
+ * REVERSE_ONSET, while 0 % always sends NEUTRAL_PULSE (stop).
+ * Push these too close to NEUTRAL_PULSE and small throttle values
  * may not register; push them too far out and you lose fine control near zero
  * throttle. Tune per motor by testing where each ESC actually starts responding,
  * since it varies with the ESC and motor combination. Edit whichever motor needs
